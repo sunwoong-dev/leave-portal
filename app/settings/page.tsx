@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import AppLayout from "@/components/AppLayout";
 import { useStore } from "@/lib/store";
-import { getTenureLabel, getLeaveTypeLabel } from "@/lib/leaveCalc";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, query, where, updateDoc, doc } from "firebase/firestore";
 
@@ -12,37 +11,18 @@ async function hashPassword(password: string): Promise<string> {
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
+const MAX_SIGNATURE_BYTES = 400 * 1024; // base64 데이터 URL 기준 (Firestore 문서 크기 고려)
+
 export default function SettingsPage() {
-  const { state, usedLeave, grantedDays, showNotification, logout } = useStore();
+  const { state, usedLeave, grantedDays, showNotification, updateSignature } = useStore();
   const user = state.currentUser;
-  const [name, setName] = useState(user?.name ?? "");
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
-  const [notifEmail, setNotifEmail] = useState(true);
-  const [notifApproval, setNotifApproval] = useState(true);
-  const [notifReminder, setNotifReminder] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [pwSaving, setPwSaving] = useState(false);
-
-  useEffect(() => {
-    if (user) setName(user.name);
-  }, [user?.name]);
+  const [sigSaving, setSigSaving] = useState(false);
 
   if (!user) return null;
-
-  async function handleSaveProfile(e: React.FormEvent) {
-    e.preventDefault();
-    if (!name.trim()) { showNotification("이름을 입력해주세요.", "error"); return; }
-    try {
-      await updateDoc(doc(db, "leave_portal_users", user!.id), { name: name.trim() });
-      showNotification("프로필이 저장되었습니다.");
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } catch {
-      showNotification("저장 중 오류가 발생했습니다.", "error");
-    }
-  }
 
   async function handleChangePw(e: React.FormEvent) {
     e.preventDefault();
@@ -67,59 +47,90 @@ export default function SettingsPage() {
     }
   }
 
-  function handleSaveNotif(e: React.FormEvent) {
-    e.preventDefault();
-    showNotification("알림 설정이 저장되었습니다.");
+  async function handleSignatureUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      showNotification("이미지 파일만 업로드할 수 있습니다.", "error");
+      return;
+    }
+    setSigSaving(true);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      if (dataUrl.length > MAX_SIGNATURE_BYTES) {
+        showNotification("서명 이미지 용량이 너무 큽니다. 더 작은 이미지를 사용해주세요.", "error");
+        return;
+      }
+      await updateSignature(dataUrl);
+      showNotification("서명이 등록되었습니다.");
+    } catch {
+      showNotification("서명 등록 중 오류가 발생했습니다.", "error");
+    } finally {
+      setSigSaving(false);
+    }
+  }
+
+  async function handleSignatureRemove() {
+    if (!confirm("등록된 서명을 삭제하시겠습니까?")) return;
+    setSigSaving(true);
+    try {
+      await updateSignature(null);
+      showNotification("서명이 삭제되었습니다.");
+    } catch {
+      showNotification("서명 삭제 중 오류가 발생했습니다.", "error");
+    } finally {
+      setSigSaving(false);
+    }
   }
 
   const inputCls = "w-full px-3 py-2.5 border border-outline-variant rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition bg-white";
-  const disabledCls = "opacity-60 cursor-not-allowed bg-surface-container-low";
 
   return (
     <AppLayout>
       <div className="p-5 md:p-10 max-w-3xl mx-auto space-y-6">
         <div>
           <h2 className="text-2xl font-bold text-on-surface">설정</h2>
-          <p className="text-sm text-on-surface-variant mt-1">계정 정보 및 알림 설정을 관리합니다.</p>
+          <p className="text-sm text-on-surface-variant mt-1">비밀번호, 연차 현황, 서명 이미지를 관리합니다.</p>
         </div>
 
-        {/* Profile Card */}
+        {/* Signature */}
         <section className="bg-white rounded-xl border border-outline-variant shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-outline-variant bg-surface-bright">
-            <h3 className="font-bold text-base text-on-surface">프로필 정보</h3>
+            <h3 className="font-bold text-base text-on-surface">서명 이미지</h3>
+            <p className="text-xs text-on-surface-variant mt-0.5">등록해두면 휴가신청서 PDF 출력 시 서명란에 자동으로 삽입됩니다. 등록하지 않으면 인쇄 후 직접 서명하시면 됩니다.</p>
           </div>
-          <form onSubmit={handleSaveProfile} className="p-6 space-y-5">
-            <div className="flex items-center gap-5 mb-2">
-              <div className="w-16 h-16 rounded-full bg-primary flex items-center justify-center text-white text-2xl font-bold">
-                {user.initials}
-              </div>
-              <div>
-                <p className="font-bold text-on-surface">{user.name}</p>
-                <p className="text-sm text-on-surface-variant">@{user.username}</p>
-                {user.joinDate && (
-                  <p className="text-xs text-on-surface-variant mt-0.5">
-                    {getTenureLabel(user.joinDate)} · {getLeaveTypeLabel(user.joinDate)} {user.totalLeave}일
-                  </p>
-                )}
-              </div>
+          <div className="p-6 flex items-center gap-6">
+            <div className="w-40 h-20 border border-dashed border-outline-variant rounded-lg flex items-center justify-center bg-surface-container-low overflow-hidden shrink-0">
+              {user.signatureImage ? (
+                <img src={user.signatureImage} alt="서명 미리보기" className="max-w-full max-h-full object-contain" />
+              ) : (
+                <span className="text-xs text-on-surface-variant">서명 없음</span>
+              )}
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-on-surface-variant mb-1.5">이름</label>
-                <input type="text" value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-on-surface-variant mb-1.5">아이디</label>
-                <input type="text" value={user.username} disabled className={`${inputCls} ${disabledCls}`} />
-              </div>
+            <div className="flex flex-col gap-2">
+              <label className={`inline-flex items-center gap-2 px-4 py-2 border border-outline-variant rounded-xl text-sm font-bold cursor-pointer hover:bg-surface-container-low transition ${sigSaving ? "opacity-50 pointer-events-none" : ""}`}>
+                <span className="material-symbols-outlined text-lg">upload</span>
+                {user.signatureImage ? "서명 다시 업로드" : "서명 업로드"}
+                <input type="file" accept="image/*" className="hidden" onChange={handleSignatureUpload} disabled={sigSaving} />
+              </label>
+              {user.signatureImage && (
+                <button
+                  type="button"
+                  onClick={handleSignatureRemove}
+                  disabled={sigSaving}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-bold text-error hover:underline disabled:opacity-50"
+                >
+                  서명 삭제
+                </button>
+              )}
             </div>
-            <div className="flex justify-end">
-              <button type="submit" className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white font-bold rounded-xl hover:opacity-90 transition-all text-sm">
-                <span className="material-symbols-outlined text-lg">{saved ? "check" : "save"}</span>
-                {saved ? "저장됨" : "저장하기"}
-              </button>
-            </div>
-          </form>
+          </div>
         </section>
 
         {/* Leave Balance */}
@@ -182,40 +193,6 @@ export default function SettingsPage() {
               <button type="submit" disabled={pwSaving} className="flex items-center gap-2 px-5 py-2.5 bg-secondary text-white font-bold rounded-xl hover:opacity-90 text-sm disabled:opacity-50">
                 <span className="material-symbols-outlined text-lg">{pwSaving ? "progress_activity" : "lock_reset"}</span>
                 {pwSaving ? "변경 중..." : "비밀번호 변경"}
-              </button>
-            </div>
-          </form>
-        </section>
-
-        {/* Notification Settings */}
-        <section className="bg-white rounded-xl border border-outline-variant shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-outline-variant bg-surface-bright">
-            <h3 className="font-bold text-base text-on-surface">알림 설정</h3>
-          </div>
-          <form onSubmit={handleSaveNotif} className="p-6 space-y-4">
-            {[
-              { label: "이메일 알림", desc: "승인/반려 결과를 이메일로 받습니다.", value: notifEmail, set: setNotifEmail },
-              { label: "승인 상태 알림", desc: "휴가 신청 상태 변경 시 알림을 받습니다.", value: notifApproval, set: setNotifApproval },
-              { label: "연차 소진 알림", desc: "잔여 연차가 5일 미만일 때 알림을 받습니다.", value: notifReminder, set: setNotifReminder },
-            ].map((item) => (
-              <div key={item.label} className="flex items-center justify-between py-3 border-b border-outline-variant last:border-0">
-                <div>
-                  <p className="text-sm font-semibold text-on-surface">{item.label}</p>
-                  <p className="text-xs text-on-surface-variant">{item.desc}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => item.set(!item.value)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${item.value ? "bg-primary" : "bg-surface-container-high"}`}
-                >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${item.value ? "translate-x-6" : "translate-x-1"}`} />
-                </button>
-              </div>
-            ))}
-            <div className="flex justify-end pt-2">
-              <button type="submit" className="flex items-center gap-2 px-5 py-2.5 bg-primary text-white font-bold rounded-xl hover:opacity-90 text-sm">
-                <span className="material-symbols-outlined text-lg">notifications</span>
-                알림 설정 저장
               </button>
             </div>
           </form>

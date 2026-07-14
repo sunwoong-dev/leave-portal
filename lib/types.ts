@@ -12,6 +12,7 @@ export interface User {
   isManager: boolean;
   initials: string;
   fcmToken?: string;
+  signatureImage?: string; // base64 데이터 URL — 등록 시 PDF 서명란에 자동 삽입
 }
 
 export interface AppNotification {
@@ -51,6 +52,7 @@ export interface LeaveRequest {
   checkStakeholder?: boolean;
   // 검토
   reviewedBy?: string;
+  reviewedById?: string;
   reviewedAt?: string;
   reviewNote?: string;
 }

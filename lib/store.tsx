@@ -4,7 +4,7 @@ import React, { createContext, useContext, useEffect, useReducer, useState } fro
 import { User, LeaveRequest, LeaveGrant, AppNotification } from "./types";
 import { db } from "./firebase";
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc,
+  collection, doc, addDoc, updateDoc, deleteDoc, deleteField,
   onSnapshot, getDocs, getDoc, query, where, increment,
 } from "firebase/firestore";
 import { calcTotalLeave, currentLeaveYearStart } from "./leaveCalc";
@@ -34,7 +34,8 @@ type Action =
   | { type: "SET_LEAVE_GRANTS"; payload: LeaveGrant[] }
   | { type: "SET_APP_NOTIFICATIONS"; payload: AppNotification[] }
   | { type: "SET_NOTIFICATION"; payload: { message: string; type: "success" | "error" } | null }
-  | { type: "UPDATE_USER_BALANCE"; payload: number };
+  | { type: "UPDATE_USER_BALANCE"; payload: number }
+  | { type: "UPDATE_USER_SIGNATURE"; payload: string | undefined };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -53,6 +54,9 @@ function reducer(state: State, action: Action): State {
     case "UPDATE_USER_BALANCE":
       if (!state.currentUser) return state;
       return { ...state, currentUser: { ...state.currentUser, leaveBalance: action.payload } };
+    case "UPDATE_USER_SIGNATURE":
+      if (!state.currentUser) return state;
+      return { ...state, currentUser: { ...state.currentUser, signatureImage: action.payload } };
     default:
       return state;
   }
@@ -87,6 +91,7 @@ interface StoreContextType {
   addGrant: (userId: string, userName: string, days: number, reason: string) => Promise<void>;
   updateLeaveStatus: (id: string, status: "approved" | "rejected", note?: string) => Promise<void>;
   deleteLeave: (id: string) => Promise<void>;
+  updateSignature: (imageDataUrl: string | null) => Promise<void>;
   showNotification: (message: string, type?: "success" | "error") => void;
   markNotificationsRead: () => Promise<void>;
 }
@@ -117,6 +122,7 @@ function buildUser(id: string, data: Record<string, unknown>): User {
     leaveBalance: (data.leaveBalance as number) ?? totalLeave, // Firestore에 없으면 totalLeave로 임시 초기화
     isManager: (data.isManager as boolean) ?? false,
     initials: (data.initials as string) ?? makeInitials(data.name as string),
+    signatureImage: data.signatureImage as string | undefined,
   };
 }
 
@@ -449,6 +455,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       ...(isManagerSelf && {
         status: "approved",
         reviewedBy: `${state.currentUser!.name} (자동승인)`,
+        reviewedById: state.currentUser!.id,
         reviewedAt: now,
       }),
     });
@@ -495,6 +502,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const updates: Record<string, unknown> = {
       status,
       reviewedBy: state.currentUser?.name ?? "관리자",
+      reviewedById: state.currentUser?.id ?? null,
       reviewedAt: new Date().toISOString(),
     };
     if (note) updates.reviewNote = note;
@@ -529,6 +537,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     await deleteDoc(doc(db, REQUESTS_COL, id));
   }
 
+  async function updateSignature(imageDataUrl: string | null) {
+    if (!state.currentUser) return;
+    const userId = state.currentUser.id;
+    await updateDoc(doc(db, USERS_COL, userId), { signatureImage: imageDataUrl ?? deleteField() });
+    dispatch({ type: "UPDATE_USER_SIGNATURE", payload: imageDataUrl ?? undefined });
+    try {
+      const stored = JSON.parse(localStorage.getItem(SESSION_KEY) ?? "{}") as User;
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ ...stored, signatureImage: imageDataUrl ?? undefined }));
+    } catch {}
+  }
+
   function showNotification(message: string, type: "success" | "error" = "success") {
     dispatch({ type: "SET_NOTIFICATION", payload: { message, type } });
   }
@@ -558,7 +577,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const unreadCount = state.appNotifications.filter((n) => !n.read).length;
 
   return (
-    <StoreContext.Provider value={{ state, hydrated, usedLeave, grantedDays, unreadCount, login, signup, logout, deleteAccount, addLeave, updateLeaveRequest, addGrant, updateLeaveStatus, deleteLeave, showNotification, markNotificationsRead }}>
+    <StoreContext.Provider value={{ state, hydrated, usedLeave, grantedDays, unreadCount, login, signup, logout, deleteAccount, addLeave, updateLeaveRequest, addGrant, updateLeaveStatus, deleteLeave, updateSignature, showNotification, markNotificationsRead }}>
       {children}
       {state.notification && (
         <div className={`fixed bottom-8 right-8 px-6 py-4 rounded-xl shadow-xl flex items-center gap-3 z-50 transition-all duration-300 ${

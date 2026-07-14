@@ -7,6 +7,7 @@ import { useState } from "react";
 
 const baseNavItems = [
   { href: "/dashboard", icon: "dashboard", label: "Dashboard" },
+  { href: "/settings", icon: "settings", label: "Settings" },
 ];
 const managerNavItems = [
   { href: "/employees", icon: "group", label: "Employees" },

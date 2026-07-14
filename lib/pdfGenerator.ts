@@ -1,4 +1,27 @@
 import type { LeaveRequest } from "./types";
+import { db } from "./firebase";
+import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
+
+async function getApplicantSignature(req: LeaveRequest): Promise<string | undefined> {
+  if (!req.userId) return undefined;
+  const snap = await getDoc(doc(db, "leave_portal_users", req.userId));
+  return snap.exists() ? (snap.data().signatureImage as string | undefined) : undefined;
+}
+
+async function getReviewerSignature(req: LeaveRequest): Promise<string | undefined> {
+  if (req.status !== "approved") return undefined;
+  if (req.reviewedById) {
+    const snap = await getDoc(doc(db, "leave_portal_users", req.reviewedById));
+    return snap.exists() ? (snap.data().signatureImage as string | undefined) : undefined;
+  }
+  // 구버전 데이터 호환: reviewedById가 없으면 이름으로 매니저 조회
+  if (!req.reviewedBy) return undefined;
+  const name = req.reviewedBy.replace(/\s*\(자동승인\)$/, "");
+  const snap = await getDocs(
+    query(collection(db, "leave_portal_users"), where("name", "==", name), where("isManager", "==", true))
+  );
+  return snap.empty ? undefined : (snap.docs[0].data().signatureImage as string | undefined);
+}
 
 function fmtDate(dateStr: string): string {
   const [y, m, d] = dateStr.split("-");
@@ -14,7 +37,7 @@ function chk(checked: boolean): string {
   return checked ? "(●)" : "( )";
 }
 
-function buildFormHTML(req: LeaveRequest): string {
+function buildFormHTML(req: LeaveRequest, applicantSignature?: string, reviewerSignature?: string): string {
   const isAnnual = req.type === "annual";
   const isMonthly = req.type === "monthly";
   const isHalf = req.type === "half-am" || req.type === "half-pm";
@@ -79,7 +102,9 @@ function buildFormHTML(req: LeaveRequest): string {
               <th style="border:1px solid #555; background:#e2e2e2; text-align:center; padding:6px 0; width:74px; font-weight:bold; letter-spacing:3px; vertical-align:middle;">이 사</th>
             </tr>
             <tr>
-              <td style="border:1px solid #555; height:64px; width:74px;"></td>
+              <td style="border:1px solid #555; height:64px; width:74px; text-align:center; vertical-align:middle;">
+                ${reviewerSignature ? `<img src="${reviewerSignature}" style="max-height:56px; max-width:64px; object-fit:contain;" />` : ""}
+              </td>
               <td style="border:1px solid #555; height:64px; width:74px;"></td>
             </tr>
           </table>
@@ -178,23 +203,29 @@ function buildFormHTML(req: LeaveRequest): string {
       <!-- 서명 -->
       <div style="text-align:right; margin-top:52px; font-size:13px; line-height:2.6;">
         <p style="margin:0;">신청일: ${fmtISODate(req.createdAt)}</p>
-        <p style="margin:0;">신청인: ${req.userName}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;(인)</p>
+        <p style="margin:0;">신청인: ${req.userName}${
+          applicantSignature
+            ? `<img src="${applicantSignature}" style="height:34px; vertical-align:middle; margin:0 6px;" />`
+            : "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
+        }(인)</p>
       </div>
     </div>
   `;
 }
 
 export async function generateLeavePDF(req: LeaveRequest): Promise<void> {
-  const [{ default: jsPDF }, { default: html2canvas }] = await Promise.all([
+  const [{ default: jsPDF }, { default: html2canvas }, applicantSignature, reviewerSignature] = await Promise.all([
     import("jspdf"),
     import("html2canvas"),
+    getApplicantSignature(req),
+    getReviewerSignature(req),
   ]);
 
   const wrapper = document.createElement("div");
   wrapper.style.position = "absolute";
   wrapper.style.left = "-9999px";
   wrapper.style.top = "0";
-  wrapper.innerHTML = buildFormHTML(req);
+  wrapper.innerHTML = buildFormHTML(req, applicantSignature, reviewerSignature);
   document.body.appendChild(wrapper);
 
   try {
