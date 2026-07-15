@@ -5,6 +5,7 @@ import { getMessaging } from "firebase-admin/messaging";
 
 const USERS_COL = "leave_portal_users";
 const NOTIF_COL = "leave_portal_notifications";
+const NOTIF_LOGS_COL = "leave_portal_notification_logs";
 
 function getAdminApp() {
   if (getApps().length > 0) return getApps()[0];
@@ -39,16 +40,44 @@ export async function POST(req: NextRequest) {
     });
 
     // Send FCM push if token exists
+    const sentAt = new Date().toISOString();
     const userSnap = await db.collection(USERS_COL).doc(toUserId).get();
     const fcmToken = userSnap.data()?.fcmToken as string | undefined;
-    if (fcmToken) {
+
+    // 발송 로그 시작 (성공률/지연시간 측정용)
+    const logRef = await db.collection(NOTIF_LOGS_COL).add({
+      toUserId,
+      type,
+      requestId: requestId ?? null,
+      title,
+      body,
+      hadToken: !!fcmToken,
+      sendSuccess: false,
+      sentAt,
+    });
+
+    if (!fcmToken) {
+      await logRef.update({ sendError: "no_fcm_token" });
+      return NextResponse.json({ ok: true, pushed: false });
+    }
+
+    const startedAt = Date.now();
+    try {
       await getMessaging(app).send({
         token: fcmToken,
         notification: { title, body },
+        data: { logId: logRef.id, sentAt },
         webpush: {
           notification: { title, body, icon: "/icon-192.png" },
           fcmOptions: { link: "/dashboard" },
         },
+      });
+      await logRef.update({ sendSuccess: true, serverLatencyMs: Date.now() - startedAt });
+    } catch (sendErr) {
+      await logRef.update({
+        sendSuccess: false,
+        sendError: String(sendErr),
+        serverLatencyMs: Date.now() - startedAt,
       });
     }
 

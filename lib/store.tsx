@@ -18,6 +18,7 @@ const SESSION_KEY = "leave_portal_session";
 const NO_DEDUCTION_TYPES = ["sick", "reservist"];
 
 const NOTIF_COL = "leave_portal_notifications";
+const NOTIF_LOGS_COL = "leave_portal_notification_logs";
 
 interface State {
   currentUser: User | null;
@@ -334,6 +335,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       unsub = onForegroundMessage((payload) => {
         const title = payload.notification?.title;
         if (title) dispatch({ type: "SET_NOTIFICATION", payload: { message: title, type: "success" } });
+        // 발송 로그에 수신 확인 기록 (성공률/지연시간 측정용)
+        const logId = payload.data?.logId;
+        const sentAtStr = payload.data?.sentAt;
+        if (logId) {
+          const receivedAt = new Date().toISOString();
+          const deliveryLatencyMs = sentAtStr ? Date.now() - new Date(sentAtStr).getTime() : undefined;
+          updateDoc(doc(db, NOTIF_LOGS_COL, logId), {
+            receivedAt,
+            receivedVia: "foreground",
+            ...(deliveryLatencyMs !== undefined && { deliveryLatencyMs }),
+          }).catch(() => {});
+        }
       }) as unknown as () => void;
     });
     return () => { unsub?.(); };

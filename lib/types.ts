@@ -79,6 +79,23 @@ export const STATUS_LABELS: Record<LeaveStatus, string> = {
   rejected: "반려됨",
 };
 
+export interface NotificationLog {
+  id: string;
+  toUserId: string;
+  type: string;
+  requestId?: string;
+  title: string;
+  body: string;
+  hadToken: boolean;       // 수신자에게 FCM 토큰이 있었는지
+  sendSuccess: boolean;    // 서버 -> FCM 발송 API 호출 성공 여부
+  sendError?: string;
+  serverLatencyMs?: number; // FCM 발송 API 호출에 걸린 시간
+  sentAt: string;
+  receivedAt?: string;      // 클라이언트가 실제로 수신한 시각 (수신 확인된 경우만 존재)
+  receivedVia?: "foreground" | "background";
+  deliveryLatencyMs?: number; // receivedAt - sentAt
+}
+
 export interface LeaveGrant {
   id: string;
   userId: string;
