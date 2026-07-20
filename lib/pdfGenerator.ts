@@ -1,11 +1,22 @@
 import type { LeaveRequest } from "./types";
 import { db } from "./firebase";
 import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
+import { getLeaveTypeLabel } from "./leaveCalc";
 
-async function getApplicantSignature(req: LeaveRequest): Promise<string | undefined> {
-  if (!req.userId) return undefined;
+interface ApplicantInfo {
+  signatureImage?: string;
+  joinDate?: string;
+}
+
+async function getApplicantInfo(req: LeaveRequest): Promise<ApplicantInfo> {
+  if (!req.userId) return {};
   const snap = await getDoc(doc(db, "leave_portal_users", req.userId));
-  return snap.exists() ? (snap.data().signatureImage as string | undefined) : undefined;
+  if (!snap.exists()) return {};
+  const data = snap.data();
+  return {
+    signatureImage: data.signatureImage as string | undefined,
+    joinDate: data.joinDate as string | undefined,
+  };
 }
 
 async function getReviewerSignature(req: LeaveRequest): Promise<string | undefined> {
@@ -37,10 +48,14 @@ function chk(checked: boolean): string {
   return checked ? "(●)" : "( )";
 }
 
-function buildFormHTML(req: LeaveRequest, applicantSignature?: string, reviewerSignature?: string): string {
-  const isAnnual = req.type === "annual";
-  const isMonthly = req.type === "monthly";
+function buildFormHTML(req: LeaveRequest, applicantJoinDate?: string, applicantSignature?: string, reviewerSignature?: string): string {
+  // 연차/월차는 신청 당시(startDate) 기준 근속 개월수로 판정 — 신청서 자체엔 "annual" 하나로만 저장되기 때문
+  const isAnnualCategory = req.type === "annual" || req.type === "monthly";
+  const leaveTypeAtRequest = applicantJoinDate ? getLeaveTypeLabel(applicantJoinDate, new Date(req.startDate)) : "연차";
+  const isAnnual = isAnnualCategory && leaveTypeAtRequest === "연차";
+  const isMonthly = isAnnualCategory && leaveTypeAtRequest === "월차";
   const isHalf = req.type === "half-am" || req.type === "half-pm";
+  const halfLabel = req.type === "half-am" ? "오전 반차" : req.type === "half-pm" ? "오후 반차" : "반차";
   const isReservist = req.type === "reservist";
   const isSick = req.type === "sick";
   const isOther = req.type === "other";
@@ -130,7 +145,7 @@ function buildFormHTML(req: LeaveRequest, applicantSignature?: string, reviewerS
             <td style="${VAL}">
               ${chk(isAnnual)} 연차 &nbsp;&nbsp;
               ${chk(isMonthly)} 월차 &nbsp;&nbsp;
-              ${chk(isHalf)} 반차 &nbsp;&nbsp;
+              ${chk(isHalf)} ${halfLabel} &nbsp;&nbsp;
               ${chk(isReservist)} 예비군 &nbsp;&nbsp;
               ${chk(isSick)} 병가 &nbsp;&nbsp;
               ${chk(isOther)} 기타
@@ -214,10 +229,10 @@ function buildFormHTML(req: LeaveRequest, applicantSignature?: string, reviewerS
 }
 
 export async function generateLeavePDF(req: LeaveRequest): Promise<void> {
-  const [{ default: jsPDF }, { default: html2canvas }, applicantSignature, reviewerSignature] = await Promise.all([
+  const [{ default: jsPDF }, { default: html2canvas }, applicantInfo, reviewerSignature] = await Promise.all([
     import("jspdf"),
     import("html2canvas"),
-    getApplicantSignature(req),
+    getApplicantInfo(req),
     getReviewerSignature(req),
   ]);
 
@@ -225,7 +240,7 @@ export async function generateLeavePDF(req: LeaveRequest): Promise<void> {
   wrapper.style.position = "absolute";
   wrapper.style.left = "-9999px";
   wrapper.style.top = "0";
-  wrapper.innerHTML = buildFormHTML(req, applicantSignature, reviewerSignature);
+  wrapper.innerHTML = buildFormHTML(req, applicantInfo.joinDate, applicantInfo.signatureImage, reviewerSignature);
   document.body.appendChild(wrapper);
 
   try {

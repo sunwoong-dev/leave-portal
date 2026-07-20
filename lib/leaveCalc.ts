@@ -36,10 +36,10 @@ export function getTenureLabel(joinDate: string): string {
   return `${years}년 ${remainMonths}개월차`;
 }
 
-/** 월차/연차 구분 레이블 */
-export function getLeaveTypeLabel(joinDate: string): "월차" | "연차" {
+/** 월차/연차 구분 레이블 (asOfDate 기준 — 기본값은 오늘) */
+export function getLeaveTypeLabel(joinDate: string, asOfDate: Date = new Date()): "월차" | "연차" {
   if (!joinDate) return "연차";
-  const months = getCompletedMonths(joinDate, new Date());
+  const months = getCompletedMonths(joinDate, asOfDate);
   return months < 12 ? "월차" : "연차";
 }
 
