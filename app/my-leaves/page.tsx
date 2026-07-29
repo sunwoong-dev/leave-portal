@@ -29,6 +29,9 @@ export default function MyLeavesPage() {
   const [statusFilter, setStatusFilter] = useState<"all" | LeaveStatus>("all");
   const [startDate, setStartDate] = useState(`${new Date().getFullYear()}-01-01`);
   const [endDate, setEndDate] = useState(`${new Date().getFullYear()}-12-31`);
+  const [draftStartDate, setDraftStartDate] = useState(startDate);
+  const [draftEndDate, setDraftEndDate] = useState(endDate);
+  const endDateInitialized = useRef(false);
   const [page, setPage] = useState(1);
   const [allUsersTotalLeave, setAllUsersTotalLeave] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -56,6 +59,28 @@ export default function MyLeavesPage() {
       setAllUsersTotalLeave(total);
     });
   }, []);
+
+  // 우측 날짜 기본값 = 현재 신청되어있는 가장 마지막 연/월/반차 날짜 (최초 1회만 적용)
+  const NORMAL_LEAVE_TYPES = ["annual", "monthly", "half-am", "half-pm"];
+  const latestLeaveDate = useMemo(() => {
+    const relevant = state.leaveRequests.filter((r) => NORMAL_LEAVE_TYPES.includes(r.type));
+    if (relevant.length === 0) return null;
+    return relevant.reduce((max, r) => (r.startDate > max ? r.startDate : max), relevant[0].startDate);
+  }, [state.leaveRequests]);
+
+  useEffect(() => {
+    if (!endDateInitialized.current && latestLeaveDate) {
+      setEndDate(latestLeaveDate);
+      setDraftEndDate(latestLeaveDate);
+      endDateInitialized.current = true;
+    }
+  }, [latestLeaveDate]);
+
+  function handleSearch() {
+    setStartDate(draftStartDate);
+    setEndDate(draftEndDate);
+    setPage(1);
+  }
 
   const selectedYear = startDate.slice(0, 4);
 
@@ -219,9 +244,9 @@ export default function MyLeavesPage() {
                     <h4 className="text-lg font-bold text-primary">월별 휴가 사용 트렌드</h4>
                     <p className="text-xs text-on-surface-variant">{selectedYear}년 전체 직원 승인 신청 건수 기준</p>
                   </div>
-                  <div className="flex items-center gap-3 text-xs font-medium">
-                    <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm bg-blue-200 border border-blue-300" />연차</span>
-                    <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm bg-rose-200 border border-rose-300" />반차</span>
+                  <div className="flex items-center gap-3 text-sm font-medium">
+                    <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm bg-emerald-300 border border-emerald-400" />연차</span>
+                    <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm bg-amber-200 border border-amber-300" />반차</span>
                   </div>
                 </div>
                 {/* 차트 본체 */}
@@ -265,9 +290,9 @@ export default function MyLeavesPage() {
                               {m.count > 0 && (
                                 <span className="absolute -top-5 left-0 right-0 text-center text-[10px] font-bold text-on-surface-variant leading-none">{m.count}건</span>
                               )}
-                              <div className="w-full bg-rose-200 flex-shrink-0 rounded-t"
+                              <div className="w-full bg-amber-200 flex-shrink-0 rounded-t"
                                 style={{ height: m.count > 0 ? `${(m.halfCount / m.count) * 100}%` : "0%" }} />
-                              <div className="w-full bg-blue-200 flex-1" />
+                              <div className="w-full bg-emerald-300 flex-1" />
                             </div>
                           </div>
                         ))}
@@ -293,14 +318,21 @@ export default function MyLeavesPage() {
             <div className="flex-shrink-0 px-5 py-4 border-b border-outline-variant flex items-center justify-between flex-wrap gap-3 bg-surface-bright">
               <div>
                 <h4 className="text-base font-bold text-primary">Leave History</h4>
-                <p className="text-xs text-on-surface-variant mt-0.5">전체 직원 신청 내역</p>
+                <p className="text-base text-on-surface-variant mt-0.5">전체 직원 신청 내역</p>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <div className="flex items-center gap-1.5 border border-outline-variant rounded-lg px-2 py-1.5 bg-white text-xs">
-                  <input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setPage(1); }} className="border-none focus:ring-0 p-0 bg-transparent text-xs" />
+                  <input type="date" value={draftStartDate} onChange={(e) => setDraftStartDate(e.target.value)} className="border-none focus:ring-0 p-0 bg-transparent text-xs" />
                   <span className="text-on-surface-variant">~</span>
-                  <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setPage(1); }} className="border-none focus:ring-0 p-0 bg-transparent text-xs" />
+                  <input type="date" value={draftEndDate} onChange={(e) => setDraftEndDate(e.target.value)} className="border-none focus:ring-0 p-0 bg-transparent text-xs" />
                 </div>
+                <button
+                  onClick={handleSearch}
+                  className="flex items-center gap-1 px-2.5 py-1.5 border border-primary text-primary rounded-lg text-xs font-semibold hover:bg-primary/10 transition-colors"
+                >
+                  <span className="material-symbols-outlined text-base">search</span>
+                  조회
+                </button>
                 <select
                   value={statusFilter}
                   onChange={(e) => { setStatusFilter(e.target.value as LeaveStatus | "all"); setPage(1); }}
@@ -315,8 +347,8 @@ export default function MyLeavesPage() {
                   onClick={() => handleExport()}
                   disabled={pdfLoading}
                   className={`flex items-center gap-1 px-2.5 py-1.5 border rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${selectedId
-                      ? "border-primary text-primary hover:bg-primary/10"
-                      : "border-outline-variant hover:bg-surface-container-low"
+                    ? "border-primary text-primary hover:bg-primary/10"
+                    : "border-outline-variant hover:bg-surface-container-low"
                     }`}
                 >
                   <span className="material-symbols-outlined text-base">picture_as_pdf</span>
@@ -332,7 +364,7 @@ export default function MyLeavesPage() {
                     <th className="px-5 py-3 border-b border-outline-variant">휴가 종류</th>
                     <th className="px-5 py-3 border-b border-outline-variant">기간</th>
                     <th className="px-5 py-3 border-b border-outline-variant text-center">일수</th>
-                    <th className="px-5 py-3 border-b border-outline-variant">사유</th>
+                    <th className="px-5 py-3 border-b border-outline-variant">인수인계 사항</th>
                     <th className="px-5 py-3 border-b border-outline-variant">상태</th>
                     <th className="px-5 py-3 border-b border-outline-variant text-right">관리</th>
                   </tr>
@@ -380,7 +412,7 @@ export default function MyLeavesPage() {
               </table>
             </div>
             <div className="flex-shrink-0 px-5 py-3 bg-surface-bright flex items-center justify-between border-t border-outline-variant flex-wrap gap-3">
-              <p className="text-xs text-on-surface-variant font-medium">
+              <p className="text-sm text-on-surface-variant font-medium">
                 전체 {myRequests.length}건 중 {myRequests.length === 0 ? 0 : (currentPage - 1) * perPage + 1}~{Math.min(currentPage * perPage, myRequests.length)} 표시
               </p>
               <div className="flex gap-1.5">

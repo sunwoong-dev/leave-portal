@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AppLayout from "@/components/AppLayout";
 import { useStore } from "@/lib/store";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, query, where, updateDoc, doc } from "firebase/firestore";
+import { collection, getDocs, query, where, updateDoc, doc, type DocumentReference } from "firebase/firestore";
 
 async function hashPassword(password: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(password));
@@ -12,6 +12,28 @@ async function hashPassword(password: string): Promise<string> {
 }
 
 const MAX_SIGNATURE_BYTES = 400 * 1024; // base64 데이터 URL 기준 (Firestore 문서 크기 고려)
+
+// 아이디 규칙(영문/숫자/밑줄만 허용, app/signup/page.tsx)과 동일하게 영문/숫자 기반에
+// 비밀번호 전용으로 허용할 특수문자만 추가
+const PASSWORD_MIN_LENGTH = 10;
+const ALLOWED_SPECIAL_CHARS = "!@#$%^&*()_-+=";
+const ALLOWED_SPECIAL_REGEX = "!@#\\$%\\^&\\*\\(\\)_\\-\\+=";
+
+function checkPasswordPolicy(pw: string) {
+  const hasLetter = /[A-Za-z]/.test(pw);
+  const hasDigit = /\d/.test(pw);
+  const hasSpecial = new RegExp(`[${ALLOWED_SPECIAL_REGEX}]`).test(pw);
+  const onlyAllowedChars = new RegExp(`^[A-Za-z0-9${ALLOWED_SPECIAL_REGEX}]*$`).test(pw);
+  const longEnough = pw.length >= PASSWORD_MIN_LENGTH;
+  return {
+    hasLetter,
+    hasDigit,
+    hasSpecial,
+    onlyAllowedChars,
+    longEnough,
+    valid: hasLetter && hasDigit && hasSpecial && onlyAllowedChars && longEnough,
+  };
+}
 
 export default function SettingsPage() {
   const { state, usedLeave, grantedDays, showNotification, updateSignature } = useStore();
@@ -22,22 +44,42 @@ export default function SettingsPage() {
   const [pwSaving, setPwSaving] = useState(false);
   const [sigSaving, setSigSaving] = useState(false);
 
+  const [storedHash, setStoredHash] = useState<string | null>(null);
+  const [userDocRef, setUserDocRef] = useState<DocumentReference | null>(null);
+  const [currentPwValid, setCurrentPwValid] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    getDocs(query(collection(db, "leave_portal_users"), where("username", "==", user.username))).then((snap) => {
+      if (snap.empty) return;
+      setStoredHash(snap.docs[0].data().password as string);
+      setUserDocRef(snap.docs[0].ref);
+    });
+  }, [user?.username]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!currentPw || !storedHash) { setCurrentPwValid(false); return; }
+    hashPassword(currentPw).then((h) => {
+      if (!cancelled) setCurrentPwValid(h === storedHash);
+    });
+    return () => { cancelled = true; };
+  }, [currentPw, storedHash]);
+
+  const newPwPolicy = useMemo(() => checkPasswordPolicy(newPw), [newPw]);
+  const newPwValid = newPw.length > 0 && newPwPolicy.valid;
+  const confirmPwValid = confirmPw.length > 0 && confirmPw === newPw;
+  const canSubmitPwChange = currentPwValid && newPwValid && confirmPwValid && !pwSaving;
+
   if (!user) return null;
 
   async function handleChangePw(e: React.FormEvent) {
     e.preventDefault();
-    if (!currentPw) { showNotification("현재 비밀번호를 입력해주세요.", "error"); return; }
-    if (newPw.length < 6) { showNotification("새 비밀번호는 6자 이상이어야 합니다.", "error"); return; }
-    if (newPw !== confirmPw) { showNotification("새 비밀번호가 일치하지 않습니다.", "error"); return; }
+    if (!canSubmitPwChange || !userDocRef) return;
     setPwSaving(true);
     try {
-      const snap = await getDocs(query(collection(db, "leave_portal_users"), where("username", "==", user!.username)));
-      if (snap.empty) { showNotification("사용자 정보를 찾을 수 없습니다.", "error"); return; }
-      const stored = snap.docs[0].data().password as string;
-      const currentHashed = await hashPassword(currentPw);
-      if (stored !== currentHashed) { showNotification("현재 비밀번호가 올바르지 않습니다.", "error"); return; }
       const newHashed = await hashPassword(newPw);
-      await updateDoc(snap.docs[0].ref, { password: newHashed });
+      await updateDoc(userDocRef, { password: newHashed });
       showNotification("비밀번호가 변경되었습니다.");
       setCurrentPw(""); setNewPw(""); setConfirmPw("");
     } catch {
@@ -103,7 +145,7 @@ export default function SettingsPage() {
         <section className="bg-white rounded-xl border border-outline-variant shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-outline-variant bg-surface-bright">
             <h3 className="font-bold text-base text-on-surface">서명 이미지</h3>
-            <p className="text-xs text-on-surface-variant mt-0.5">등록해두면 휴가신청서 PDF 출력 시 서명란에 자동으로 삽입됩니다. 등록하지 않으면 인쇄 후 직접 서명하시면 됩니다.</p>
+            <p className="text-xs text-on-surface-variant mt-0.5">등록해두면 휴가신청서 PDF 출력 시 서명란에 자동으로 삽입됩니다. 배경 색상 없이 서명 누끼로 업로드하시면 됩니다.</p>
           </div>
           <div className="p-6 flex items-center gap-6">
             <div className="w-40 h-20 border border-dashed border-outline-variant rounded-lg flex items-center justify-center bg-surface-container-low overflow-hidden shrink-0">
@@ -176,21 +218,74 @@ export default function SettingsPage() {
           <form onSubmit={handleChangePw} className="p-6 space-y-4">
             <div>
               <label className="block text-xs font-bold text-on-surface-variant mb-1.5">현재 비밀번호</label>
-              <input type="password" value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} placeholder="현재 비밀번호 입력" className={inputCls} />
+              <div className="relative">
+                <input
+                  type="password"
+                  value={currentPw}
+                  onChange={(e) => setCurrentPw(e.target.value)}
+                  placeholder="현재 비밀번호 입력"
+                  className={`${inputCls} pr-9`}
+                />
+                {currentPw && (
+                  <span className={`material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-lg ${currentPwValid ? "text-green-600" : "text-error"}`}>
+                    {currentPwValid ? "check_circle" : "cancel"}
+                  </span>
+                )}
+              </div>
+              {currentPw && !currentPwValid && (
+                <p className="text-xs text-error mt-1">현재 비밀번호가 올바르지 않습니다.</p>
+              )}
             </div>
             <div>
               <label className="block text-xs font-bold text-on-surface-variant mb-1.5">새 비밀번호</label>
-              <input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="새 비밀번호 (4자 이상)" className={inputCls} />
+              <div className="relative">
+                <input
+                  type="password"
+                  value={newPw}
+                  onChange={(e) => setNewPw(e.target.value)}
+                  placeholder={`${PASSWORD_MIN_LENGTH}자 이상, 영문+숫자+특수문자 포함`}
+                  className={`${inputCls} pr-9`}
+                />
+                {newPw && (
+                  <span className={`material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-lg ${newPwValid ? "text-green-600" : "text-error"}`}>
+                    {newPwValid ? "check_circle" : "cancel"}
+                  </span>
+                )}
+              </div>
+              {newPw && (
+                <ul className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+                  <li className={newPwPolicy.longEnough ? "text-green-600" : "text-on-surface-variant"}>· {PASSWORD_MIN_LENGTH}자 이상</li>
+                  <li className={newPwPolicy.hasLetter ? "text-green-600" : "text-on-surface-variant"}>· 영문 포함</li>
+                  <li className={newPwPolicy.hasDigit ? "text-green-600" : "text-on-surface-variant"}>· 숫자 포함</li>
+                  <li className={newPwPolicy.hasSpecial ? "text-green-600" : "text-on-surface-variant"}>· 특수문자 포함</li>
+                  {!newPwPolicy.onlyAllowedChars && (
+                    <li className="col-span-2 text-error">· 사용 가능한 문자만 입력해주세요 (영문/숫자/{ALLOWED_SPECIAL_CHARS})</li>
+                  )}
+                </ul>
+              )}
             </div>
             <div>
               <label className="block text-xs font-bold text-on-surface-variant mb-1.5">새 비밀번호 확인</label>
-              <input type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} placeholder="새 비밀번호 재입력" className={inputCls} />
-              {newPw && confirmPw && newPw !== confirmPw && (
+              <div className="relative">
+                <input
+                  type="password"
+                  value={confirmPw}
+                  onChange={(e) => setConfirmPw(e.target.value)}
+                  placeholder="새 비밀번호 재입력"
+                  className={`${inputCls} pr-9`}
+                />
+                {confirmPw && (
+                  <span className={`material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-lg ${confirmPwValid ? "text-green-600" : "text-error"}`}>
+                    {confirmPwValid ? "check_circle" : "cancel"}
+                  </span>
+                )}
+              </div>
+              {confirmPw && !confirmPwValid && (
                 <p className="text-xs text-error mt-1">비밀번호가 일치하지 않습니다.</p>
               )}
             </div>
             <div className="flex justify-end">
-              <button type="submit" disabled={pwSaving} className="flex items-center gap-2 px-5 py-2.5 bg-secondary text-white font-bold rounded-xl hover:opacity-90 text-sm disabled:opacity-50">
+              <button type="submit" disabled={!canSubmitPwChange} className="flex items-center gap-2 px-5 py-2.5 bg-secondary text-white font-bold rounded-xl hover:opacity-90 text-sm disabled:opacity-50 disabled:pointer-events-none">
                 <span className="material-symbols-outlined text-lg">{pwSaving ? "progress_activity" : "lock_reset"}</span>
                 {pwSaving ? "변경 중..." : "비밀번호 변경"}
               </button>
