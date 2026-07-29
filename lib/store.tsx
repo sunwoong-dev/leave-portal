@@ -8,6 +8,7 @@ import {
   onSnapshot, getDocs, getDoc, query, where, increment,
 } from "firebase/firestore";
 import { calcTotalLeave, currentLeaveYearStart } from "./leaveCalc";
+import { activeGrantBalance, grantCeilingTotal, planGrantConsumption, findExpiredUnclaimedGrants } from "./grantLedger";
 
 const USERS_COL = "leave_portal_users";
 const REQUESTS_COL = "leave_portal_requests";
@@ -82,6 +83,7 @@ interface StoreContextType {
   hydrated: boolean;
   usedLeave: number;
   grantedDays: number;
+  unusedGrantDays: number;
   unreadCount: number;
   login: (username: string, password: string) => Promise<void>;
   signup: (username: string, password: string, data: SignupData) => Promise<{ ok: boolean; error?: string }>;
@@ -235,6 +237,26 @@ async function syncTotalLeave(
   return currentLeaveBalance;
 }
 
+// 만료됐지만 아직 정리 안 된 부여 연차를 leaveBalance에서 회수 (로그인/세션 복원 시 호출)
+async function syncGrantExpiry(userId: string, currentLeaveBalance: number): Promise<number> {
+  const grantsSnap = await getDocs(query(collection(db, GRANTS_COL), where("userId", "==", userId)));
+  const grants = grantsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as LeaveGrant[];
+  const expired = findExpiredUnclaimedGrants(grants, userId);
+  if (expired.length === 0) return currentLeaveBalance;
+
+  let clawback = 0;
+  await Promise.all(
+    expired.map((g) => {
+      const leftover = g.remainingDays ?? g.days;
+      clawback += leftover;
+      return updateDoc(doc(db, GRANTS_COL, g.id), { remainingDays: 0 });
+    })
+  );
+  const newBalance = currentLeaveBalance - clawback;
+  await updateDoc(doc(db, USERS_COL, userId), { leaveBalance: newBalance });
+  return newBalance;
+}
+
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
   const [hydrated, setHydrated] = useState(false);
@@ -266,6 +288,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
               // 마이그레이션
               leaveBalance = await migrateLeaveBalance(stored.id, totalLeave);
             }
+            // 만료된 부여 연차 회수
+            leaveBalance = await syncGrantExpiry(stored.id, leaveBalance);
           }
           const user: User = { ...stored, totalLeave, leaveBalance };
           dispatch({ type: "LOGIN", payload: user });
@@ -396,6 +420,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       );
       user = { ...user, leaveBalance: newBalance };
     }
+    // 만료된 부여 연차 회수
+    user = { ...user, leaveBalance: await syncGrantExpiry(user.id, user.leaveBalance) };
     dispatch({ type: "LOGIN", payload: user });
     localStorage.setItem(SESSION_KEY, JSON.stringify(user));
   }
@@ -459,6 +485,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     } catch {}
   }
 
+  // 휴가 승인 시 잔여 연차 차감. 부여받은 연차가 있으면 오래된 것부터 우선 소비.
+  async function applyLeaveDeduction(requestId: string, userId: string, days: number) {
+    const plan = planGrantConsumption(state.leaveGrants, userId, days);
+    await Promise.all(
+      plan.map((p) => updateDoc(doc(db, GRANTS_COL, p.grantId), { remainingDays: increment(-p.days) }))
+    );
+    await updateDoc(doc(db, USERS_COL, userId), { leaveBalance: increment(-days) });
+    if (plan.length > 0) {
+      await updateDoc(doc(db, REQUESTS_COL, requestId), { grantDeductions: plan });
+    }
+  }
+
+  // 승인 취소/삭제 시 차감을 정확히 되돌림 (부여 연차에서 가져갔던 만큼 그대로 복원)
+  async function reverseLeaveDeduction(req: LeaveRequest) {
+    await updateDoc(doc(db, USERS_COL, req.userId), { leaveBalance: increment(req.days) });
+    if (req.grantDeductions && req.grantDeductions.length > 0) {
+      await Promise.all(
+        req.grantDeductions.map((gd) => updateDoc(doc(db, GRANTS_COL, gd.grantId), { remainingDays: increment(gd.days) }))
+      );
+    }
+  }
+
   async function addLeave(req: Omit<LeaveRequest, "id" | "createdAt">) {
     const now = new Date().toISOString();
     const isManagerSelf = state.currentUser?.isManager ?? false;
@@ -475,9 +523,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // 관리자 본인 연차는 자동 승인이므로 즉시 차감 (병가/예비군은 차감 제외)
     if (isManagerSelf) {
       if (!NO_DEDUCTION_TYPES.includes(req.type)) {
-        await updateDoc(doc(db, USERS_COL, state.currentUser!.id), {
-          leaveBalance: increment(-req.days),
-        });
+        await applyLeaveDeduction(docRef.id, state.currentUser!.id, req.days);
       }
     } else {
       // 일반 유저 신청 → 모든 관리자에게 알림
@@ -506,6 +552,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       reason,
       grantedBy: state.currentUser?.name ?? "관리자",
       grantedAt: new Date().toISOString(),
+      remainingDays: days, // 양수 부여만 의미 있음(만료·우선소비 추적용)
     });
     // 해당 유저의 잔여 연차 즉시 반영
     await updateDoc(doc(db, USERS_COL, userId), { leaveBalance: increment(days) });
@@ -525,7 +572,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (req) {
       // 승인 시 잔여 연차 차감 (병가/예비군은 유급 처리되어 차감 제외)
       if (status === "approved" && !NO_DEDUCTION_TYPES.includes(req.type)) {
-        await updateDoc(doc(db, USERS_COL, req.userId), { leaveBalance: increment(-req.days) });
+        await applyLeaveDeduction(id, req.userId, req.days);
       }
       // 신청자에게 결과 알림 (관리자 본인 신청 제외)
       if (req.userId !== state.currentUser?.id) {
@@ -545,7 +592,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // 승인된 휴가 삭제 시 잔여 연차 복원 (병가/예비군은 차감된 적이 없으므로 복원 제외)
     const req = state.leaveRequests.find((r) => r.id === id);
     if (req?.status === "approved" && req.userId && !NO_DEDUCTION_TYPES.includes(req.type)) {
-      await updateDoc(doc(db, USERS_COL, req.userId), { leaveBalance: increment(req.days) });
+      await reverseLeaveDeduction(req);
     }
     await deleteDoc(doc(db, REQUESTS_COL, id));
   }
@@ -580,17 +627,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       })()
     : 0;
 
-  // 추가 부여된 연차 합산 (표시용)
+  // "총 연차"/"잔여" 산술용 — 만료 안 된 부여의 액면가 합계(사용 여부 무관, 이중차감 방지)
   const grantedDays = state.currentUser
-    ? state.leaveGrants
-        .filter((g) => g.userId === state.currentUser!.id)
-        .reduce((sum, g) => sum + g.days, 0)
+    ? grantCeilingTotal(state.leaveGrants, state.currentUser.id)
+    : 0;
+
+  // "+N일 부여" 뱃지 전용 — 완전히 소진되거나 만료되기 전까지만 표시(산술에는 쓰지 않음)
+  const unusedGrantDays = state.currentUser
+    ? activeGrantBalance(state.leaveGrants, state.currentUser.id)
     : 0;
 
   const unreadCount = state.appNotifications.filter((n) => !n.read).length;
 
   return (
-    <StoreContext.Provider value={{ state, hydrated, usedLeave, grantedDays, unreadCount, login, signup, logout, deleteAccount, addLeave, updateLeaveRequest, addGrant, updateLeaveStatus, deleteLeave, updateSignature, showNotification, markNotificationsRead }}>
+    <StoreContext.Provider value={{ state, hydrated, usedLeave, grantedDays, unusedGrantDays, unreadCount, login, signup, logout, deleteAccount, addLeave, updateLeaveRequest, addGrant, updateLeaveStatus, deleteLeave, updateSignature, showNotification, markNotificationsRead }}>
       {children}
       {state.notification && (
         <div className={`fixed bottom-8 right-8 px-6 py-4 rounded-xl shadow-xl flex items-center gap-3 z-50 transition-all duration-300 ${

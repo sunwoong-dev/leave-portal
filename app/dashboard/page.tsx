@@ -8,7 +8,8 @@ import { isHoliday, getHolidayName } from "@/lib/holidays";
 import LeaveRequestModal from "@/components/LeaveRequestModal";
 import { db } from "@/lib/firebase";
 import { collection, getDocs } from "firebase/firestore";
-import { calcTotalLeave } from "@/lib/leaveCalc";
+import { calcTotalLeave, daysUntilLeaveRenewal } from "@/lib/leaveCalc";
+import { grantCeilingTotal } from "@/lib/grantLedger";
 
 interface SimpleUser { id: string; name: string; totalLeave: number; }
 const STATUS_STYLES = {
@@ -52,7 +53,7 @@ function getUserColor(userId: string, name?: string) {
 }
 
 export default function DashboardPage() {
-  const { state, usedLeave, grantedDays, updateLeaveStatus, addGrant, deleteLeave, showNotification } = useStore();
+  const { state, usedLeave, grantedDays, unusedGrantDays, updateLeaveStatus, addGrant, deleteLeave, showNotification } = useStore();
   const user = state.currentUser;
   if (!user) return null;
 
@@ -468,7 +469,7 @@ export default function DashboardPage() {
                       className="w-full border border-outline-variant rounded-xl text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30"
                     >
                       {grantEmployees.map((e) => {
-                        const granted = state.leaveGrants.filter((g) => g.userId === e.id).reduce((s, g) => s + g.days, 0);
+                        const granted = grantCeilingTotal(state.leaveGrants, e.id);
                         const used = state.leaveRequests.filter((r) => r.userId === e.id && r.status === "approved").reduce((s, r) => s + r.days, 0);
                         return <option key={e.id} value={e.id}>{e.name} (잔여 {e.totalLeave + granted - used}일)</option>;
                       })}
@@ -480,14 +481,18 @@ export default function DashboardPage() {
                       일수 <span className={`ml-1 font-bold ${grantDays > 0 ? "text-primary" : "text-error"}`}>{grantDays > 0 ? `+${grantDays}일 부여` : `${grantDays}일 차감`}</span>
                     </label>
                     <div className="flex items-center gap-2">
-                      <button onClick={() => setGrantDays((d) => d > -30 ? d - 1 : d)} className="w-8 h-8 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container font-bold text-lg flex items-center justify-center flex-shrink-0">−</button>
+                      <button onClick={() => setGrantDays((d) => d > -30 ? Math.round((d - 0.5) * 2) / 2 : d)} className="w-8 h-8 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container font-bold text-lg flex items-center justify-center flex-shrink-0">−</button>
                       <input
                         type="number"
+                        step="0.5"
                         value={grantDays}
-                        onChange={(e) => { const v = parseInt(e.target.value); if (!isNaN(v) && v !== 0 && v >= -30 && v <= 30) setGrantDays(v); }}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (!isNaN(v) && v !== 0 && v >= -30 && v <= 30 && Number.isInteger(v * 2)) setGrantDays(v);
+                        }}
                         className="flex-1 border border-outline-variant rounded-xl text-sm px-3 py-2 text-center focus:outline-none focus:ring-2 focus:ring-primary/30"
                       />
-                      <button onClick={() => setGrantDays((d) => d < 30 ? d + 1 : d)} className="w-8 h-8 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container font-bold text-lg flex items-center justify-center flex-shrink-0">+</button>
+                      <button onClick={() => setGrantDays((d) => d < 30 ? Math.round((d + 0.5) * 2) / 2 : d)} className="w-8 h-8 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container font-bold text-lg flex items-center justify-center flex-shrink-0">+</button>
                     </div>
                   </div>
                   <div>
@@ -564,7 +569,7 @@ export default function DashboardPage() {
             <div className="min-w-0">
               <p className="text-[11px] text-on-surface-variant font-semibold leading-tight">총 연차</p>
               <p className="text-2xl font-bold text-primary leading-tight">{totalWithGrants}<span className="text-xs font-medium text-on-surface-variant ml-0.5">일</span></p>
-              {grantedDays > 0 && <p className="text-[10px] text-green-600 leading-tight">+{grantedDays}일 부여</p>}
+              {unusedGrantDays > 0 && <p className="text-[10px] text-green-600 leading-tight">+{unusedGrantDays}일 부여</p>}
             </div>
           </div>
           <div className="bg-white flex items-center gap-3 p-3 rounded-xl border border-outline-variant shadow-sm">
@@ -586,7 +591,12 @@ export default function DashboardPage() {
             <div className="min-w-0">
               <p className="text-[11px] text-on-surface-variant font-semibold leading-tight">남은 휴가</p>
               <p className={`text-2xl font-bold leading-tight ${remaining <= 3 ? "text-error" : "text-on-tertiary-fixed-variant"}`}>{remaining}<span className="text-xs font-medium text-on-surface-variant ml-0.5">일</span></p>
-              {remaining <= 5 && <p className="text-[10px] text-error leading-tight">⚠ 소진 임박</p>}
+              {(() => {
+                const d = daysUntilLeaveRenewal(user.joinDate ?? "");
+                return d !== null && d >= 0 && d <= 30 ? (
+                  <p className="text-[10px] text-primary leading-tight">{d}일 후 연차 갱신</p>
+                ) : null;
+              })()}
             </div>
           </div>
         </div>

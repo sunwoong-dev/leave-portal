@@ -55,6 +55,8 @@ export interface LeaveRequest {
   reviewedById?: string;
   reviewedAt?: string;
   reviewNote?: string;
+  // 이 신청 승인 시 부여 연차(LeaveGrant)에서 차감된 내역 (취소 시 정확히 복원하기 위함)
+  grantDeductions?: { grantId: string; days: number }[];
 }
 
 export const LEAVE_TYPE_LABELS: Record<LeaveType, string> = {
@@ -104,4 +106,7 @@ export interface LeaveGrant {
   reason: string;
   grantedBy: string;
   grantedAt: string;
+  // 양수 부여(추가 지급)의 잔여 미사용분. 없으면 days와 동일(레거시 데이터 기본값).
+  // 소진되거나 만료되면 0으로 줄어듦. 음수(차감) 기록에는 의미 없음.
+  remainingDays?: number;
 }

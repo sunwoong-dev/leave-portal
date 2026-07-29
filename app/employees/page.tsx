@@ -6,7 +6,8 @@ import AppLayout from "@/components/AppLayout";
 import { useStore } from "@/lib/store";
 import { db } from "@/lib/firebase";
 import { collection, getDocs } from "firebase/firestore";
-import { calcTotalLeave, currentLeaveYearStart } from "@/lib/leaveCalc";
+import { calcTotalLeave, currentLeaveYearStart, daysUntilLeaveRenewal } from "@/lib/leaveCalc";
+import { activeGrantBalance, grantCeilingTotal } from "@/lib/grantLedger";
 
 interface EmpStat {
   id: string;
@@ -15,6 +16,7 @@ interface EmpStat {
   joinDate: string;
   totalLeave: number;
   grantedDays: number;
+  unusedGrantDays: number;
   usedDays: number;
   remaining: number;
 }
@@ -35,7 +37,7 @@ export default function EmployeesPage() {
     if (!user?.isManager) return;
     getDocs(collection(db, "leave_portal_users")).then((snap) => {
       setBaseEmps(snap.docs
-        .filter((d) => !(d.data().isManager as boolean))
+        .filter((d) => d.data().username !== "admin")
         .map((d) => {
           const data = d.data();
           const joinDate = (data.joinDate as string) ?? "";
@@ -54,11 +56,12 @@ export default function EmployeesPage() {
 
   const empStats: EmpStat[] = useMemo(() => baseEmps
     .map((emp) => {
-      const granted = state.leaveGrants.filter((g) => g.userId === emp.id).reduce((s, g) => s + g.days, 0);
+      const granted = grantCeilingTotal(state.leaveGrants, emp.id);
+      const unusedGrant = activeGrantBalance(state.leaveGrants, emp.id);
       const NO_DEDUCTION = ["sick", "reservist"];
       const yearStart = currentLeaveYearStart(emp.joinDate);
       const used = state.leaveRequests.filter((r) => r.userId === emp.id && r.status === "approved" && !NO_DEDUCTION.includes(r.type) && r.startDate >= yearStart).reduce((s, r) => s + r.days, 0);
-      return { ...emp, grantedDays: granted, usedDays: used, remaining: emp.totalLeave + granted - used };
+      return { ...emp, grantedDays: granted, unusedGrantDays: unusedGrant, usedDays: used, remaining: emp.totalLeave + granted - used };
     })
     .sort((a, b) => a.name.localeCompare(b.name, "ko")),
   [baseEmps, state.leaveGrants, state.leaveRequests]);
@@ -135,8 +138,8 @@ export default function EmployeesPage() {
                         </td>
                         <td className="px-6 py-4 text-center">
                           <p className="font-bold text-sm text-on-surface">{total}일</p>
-                          {emp.grantedDays > 0 && (
-                            <p className="text-[10px] text-green-600">+{emp.grantedDays}일 부여</p>
+                          {emp.unusedGrantDays > 0 && (
+                            <p className="text-[10px] text-green-600">+{emp.unusedGrantDays}일 부여</p>
                           )}
                         </td>
                         <td className="px-6 py-4 text-center">
@@ -146,9 +149,12 @@ export default function EmployeesPage() {
                           <p className={`font-bold text-sm ${emp.remaining <= 3 ? "text-error" : emp.remaining <= 5 ? "text-yellow-600" : "text-primary"}`}>
                             {emp.remaining}일
                           </p>
-                          {emp.remaining <= 3 && (
-                            <p className="text-[10px] text-error">소진 임박</p>
-                          )}
+                          {(() => {
+                            const d = daysUntilLeaveRenewal(emp.joinDate);
+                            return d !== null && d >= 0 && d <= 30 ? (
+                              <p className="text-[10px] text-primary">{d}일 후 연차 갱신</p>
+                            ) : null;
+                          })()}
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2">

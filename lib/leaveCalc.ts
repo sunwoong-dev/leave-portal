@@ -57,3 +57,17 @@ export function currentLeaveYearStart(joinDate: string): string {
   const start = new Date(join.getFullYear() + years, join.getMonth(), join.getDate());
   return `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}`;
 }
+
+/**
+ * 다음 근속연차 갱신(입사 주년일)까지 남은 일수.
+ * 월차 구간(입사 1년 미만)이면 해당 없음(null) — 월차는 매달 소폭 누적될 뿐 "갱신"으로 볼 큰 이벤트가 없음.
+ */
+export function daysUntilLeaveRenewal(joinDate: string, asOfDate: Date = new Date()): number | null {
+  if (!joinDate) return null;
+  const months = getCompletedMonths(joinDate, asOfDate);
+  if (months < 12) return null;
+  const yearStart = new Date(currentLeaveYearStart(joinDate) + "T00:00:00");
+  const nextRenewal = new Date(yearStart.getFullYear() + 1, yearStart.getMonth(), yearStart.getDate());
+  const diffMs = nextRenewal.getTime() - asOfDate.getTime();
+  return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+}
