@@ -1,19 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { initializeApp, getApps, cert } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
+import { getAdminApp } from "@/lib/firebaseAdmin";
 
 const USERS_COL = "leave_portal_users";
 const NOTIF_COL = "leave_portal_notifications";
 const NOTIF_LOGS_COL = "leave_portal_notification_logs";
-
-function getAdminApp() {
-  if (getApps().length > 0) return getApps()[0];
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
-  if (!raw) throw new Error("FIREBASE_SERVICE_ACCOUNT_KEY not set");
-  const serviceAccount = JSON.parse(raw);
-  return initializeApp({ credential: cert(serviceAccount) });
-}
 
 export async function POST(req: NextRequest) {
   try {

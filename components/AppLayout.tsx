@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useStore } from "@/lib/store";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
@@ -18,18 +17,13 @@ export default function AppLayout({
   searchPlaceholder?: string;
 }) {
   const { state, hydrated } = useStore();
-  const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
 
-  useEffect(() => {
-    if (mounted && hydrated && !state.currentUser) {
-      router.replace("/login");
-    }
-  }, [mounted, hydrated, state.currentUser, router]);
-
+  // 로그인 여부 자체는 AuthGuard(app/providers.tsx)가 리다이렉트를 전담하므로,
+  // 여기서는 리다이렉트되기 전까지 보호된 화면이 잠깐 노출되지 않도록 렌더만 막는다.
   if (!mounted || !hydrated || !state.currentUser) return null;
 
   return (

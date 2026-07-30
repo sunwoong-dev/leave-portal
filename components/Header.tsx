@@ -47,8 +47,8 @@ export default function Header({
     router.replace("/login");
   }
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await logout();
     router.push("/login");
   }
 

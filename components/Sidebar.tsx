@@ -24,8 +24,8 @@ export default function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean;
   const { state, logout } = useStore();
   const user = state.currentUser;
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await logout();
     router.push("/login");
   }
 

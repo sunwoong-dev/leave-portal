@@ -2,18 +2,18 @@
 
 import React, { createContext, useContext, useEffect, useReducer, useState } from "react";
 import { User, LeaveRequest, LeaveGrant, AppNotification } from "./types";
-import { db } from "./firebase";
+import { db, auth } from "./firebase";
 import {
   collection, doc, addDoc, updateDoc, deleteDoc, deleteField,
   onSnapshot, getDocs, getDoc, query, where, increment,
 } from "firebase/firestore";
+import { onAuthStateChanged, signInWithCustomToken, signOut as firebaseSignOut } from "firebase/auth";
 import { calcTotalLeave, currentLeaveYearStart } from "./leaveCalc";
 import { activeGrantBalance, grantCeilingTotal, planGrantConsumption, findExpiredUnclaimedGrants } from "./grantLedger";
 
 const USERS_COL = "leave_portal_users";
 const REQUESTS_COL = "leave_portal_requests";
 const GRANTS_COL = "leave_portal_grants";
-const SESSION_KEY = "leave_portal_session";
 
 // 병가/예비군은 유급 처리되어 연차에서 차감하지 않음
 const NO_DEDUCTION_TYPES = ["sick", "reservist"];
@@ -87,7 +87,7 @@ interface StoreContextType {
   unreadCount: number;
   login: (username: string, password: string) => Promise<void>;
   signup: (username: string, password: string, data: SignupData) => Promise<{ ok: boolean; error?: string }>;
-  logout: () => void;
+  logout: () => Promise<void>;
   deleteAccount: (password: string) => Promise<{ ok: boolean; error?: string }>;
   addLeave: (req: Omit<LeaveRequest, "id" | "createdAt">) => Promise<void>;
   updateLeaveRequest: (id: string, updates: Partial<Omit<LeaveRequest, "id" | "createdAt">>) => Promise<void>;
@@ -257,50 +257,65 @@ async function syncGrantExpiry(userId: string, currentLeaveBalance: number): Pro
   return newBalance;
 }
 
+// Firebase Auth uid(=Firestore 문서 ID)로 앱에서 쓰는 User를 조립.
+// 로그인 직후와 세션 복원(onAuthStateChanged) 양쪽에서 공유하는 단일 경로.
+async function loadUserSession(uid: string): Promise<User | null> {
+  const userDoc = await getDoc(doc(db, USERS_COL, uid));
+  if (!userDoc.exists()) return null;
+  const data = userDoc.data();
+  let user = buildUser(uid, data);
+  if (data.leaveBalance === undefined) {
+    user.leaveBalance = await migrateLeaveBalance(uid, user.totalLeave);
+  } else {
+    const newBalance = await syncTotalLeave(
+      uid, user.joinDate ?? "",
+      data.totalLeave as number | undefined,
+      data.annualLeaveYearGenerated as number | undefined,
+      user.leaveBalance,
+    );
+    user = { ...user, leaveBalance: newBalance };
+  }
+  // 만료된 부여 연차 회수
+  user = { ...user, leaveBalance: await syncGrantExpiry(uid, user.leaveBalance) };
+  return user;
+}
+
+// 서버(API Route)에서 아이디/비밀번호를 검증하고 Firebase Auth Custom Token을 받아옴
+async function requestCustomToken(username: string, password: string): Promise<string> {
+  const res = await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  const data = (await res.json()) as { ok: boolean; customToken?: string; code?: string };
+  if (!data.ok || !data.customToken) {
+    throw Object.assign(new Error(), { code: data.code ?? "unknown" });
+  }
+  return data.customToken;
+}
+
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
   const [hydrated, setHydrated] = useState(false);
 
-  // 세션 복원
+  // Firebase Auth 세션 감지 — 앱 로드 시 자동 복원 + 로그인/로그아웃 상태 변화 반영.
+  // Firebase SDK가 토큰 만료/갱신을 자체적으로 처리하므로 별도 만료 로직 불필요.
   useEffect(() => {
-    async function restore() {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       try {
-        const raw = localStorage.getItem(SESSION_KEY);
-        if (raw) {
-          const stored = JSON.parse(raw) as User;
-          const joinDate = stored.joinDate ?? "";
-          const totalLeave = joinDate ? calcTotalLeave(joinDate) : (stored.totalLeave ?? 15);
-          // Firestore에서 최신 leaveBalance 가져오기
-          const userDoc = await getDoc(doc(db, USERS_COL, stored.id));
-          let leaveBalance = stored.leaveBalance ?? totalLeave;
-          if (userDoc.exists()) {
-            const data = userDoc.data();
-            if (data.leaveBalance !== undefined) {
-              leaveBalance = data.leaveBalance as number;
-              // 입사일 기준 연차 자동 갱신
-              leaveBalance = await syncTotalLeave(
-                stored.id, joinDate,
-                data.totalLeave as number | undefined,
-                data.annualLeaveYearGenerated as number | undefined,
-                leaveBalance,
-              );
-            } else {
-              // 마이그레이션
-              leaveBalance = await migrateLeaveBalance(stored.id, totalLeave);
-            }
-            // 만료된 부여 연차 회수
-            leaveBalance = await syncGrantExpiry(stored.id, leaveBalance);
-          }
-          const user: User = { ...stored, totalLeave, leaveBalance };
-          dispatch({ type: "LOGIN", payload: user });
-          localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+        if (firebaseUser) {
+          const user = await loadUserSession(firebaseUser.uid);
+          if (user) dispatch({ type: "LOGIN", payload: user });
+          else dispatch({ type: "LOGOUT" });
+        } else {
+          dispatch({ type: "LOGOUT" });
         }
       } catch {
-        localStorage.removeItem(SESSION_KEY);
+        dispatch({ type: "LOGOUT" });
       }
       setHydrated(true);
-    }
-    restore();
+    });
+    return () => unsubscribe();
   }, []);
 
   // 현재 로그인 유저의 leaveBalance 실시간 동기화
@@ -310,13 +325,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = onSnapshot(doc(db, USERS_COL, userId), (docSnap) => {
       if (docSnap.exists()) {
         const lb = docSnap.data().leaveBalance as number | undefined;
-        if (lb !== undefined) {
-          dispatch({ type: "UPDATE_USER_BALANCE", payload: lb });
-          try {
-            const stored = JSON.parse(localStorage.getItem(SESSION_KEY) ?? "{}") as User;
-            localStorage.setItem(SESSION_KEY, JSON.stringify({ ...stored, leaveBalance: lb }));
-          } catch {}
-        }
+        if (lb !== undefined) dispatch({ type: "UPDATE_USER_BALANCE", payload: lb });
       }
     });
     return () => unsubscribe();
@@ -401,29 +410,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [state.notification]);
 
   async function login(username: string, password: string): Promise<void> {
-    const hashed = await hashPassword(password);
-    const snap = await getDocs(query(collection(db, USERS_COL), where("username", "==", username)));
-    if (snap.empty) throw Object.assign(new Error(), { code: "not_found" });
-    const data = snap.docs[0].data();
-    if (data.password !== hashed) throw Object.assign(new Error(), { code: "wrong_password" });
-    let user = buildUser(snap.docs[0].id, data);
-    // leaveBalance가 없는 기존 유저 마이그레이션
-    if (data.leaveBalance === undefined) {
-      user.leaveBalance = await migrateLeaveBalance(user.id, user.totalLeave);
-    } else {
-      // 입사일 기준 totalLeave 자동 증가 반영
-      const newBalance = await syncTotalLeave(
-        user.id, user.joinDate ?? "",
-        data.totalLeave as number | undefined,
-        data.annualLeaveYearGenerated as number | undefined,
-        user.leaveBalance,
-      );
-      user = { ...user, leaveBalance: newBalance };
-    }
-    // 만료된 부여 연차 회수
-    user = { ...user, leaveBalance: await syncGrantExpiry(user.id, user.leaveBalance) };
+    // 아이디/비밀번호 검증은 서버(API Route, firebase-admin)에서 수행 — 성공하면 Custom Token 발급
+    const customToken = await requestCustomToken(username, password);
+    const cred = await signInWithCustomToken(auth, customToken);
+    const user = await loadUserSession(cred.user.uid);
+    if (!user) throw Object.assign(new Error(), { code: "not_found" });
     dispatch({ type: "LOGIN", payload: user });
-    localStorage.setItem(SESSION_KEY, JSON.stringify(user));
   }
 
   async function signup(
@@ -450,28 +442,34 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       totalLeave: initialBalance,
       leaveBalance: initialBalance,
     };
-    const ref = await addDoc(collection(db, USERS_COL), newDoc);
-    const user = buildUser(ref.id, { ...newDoc });
-    dispatch({ type: "LOGIN", payload: user });
-    localStorage.setItem(SESSION_KEY, JSON.stringify(user));
+    await addDoc(collection(db, USERS_COL), newDoc);
+
+    // 가입 직후 자동 로그인 — 방금 저장한 자격 증명으로 동일한 서버 검증 경로를 그대로 태움
+    try {
+      const customToken = await requestCustomToken(username, password);
+      const cred = await signInWithCustomToken(auth, customToken);
+      const user = await loadUserSession(cred.user.uid);
+      if (user) dispatch({ type: "LOGIN", payload: user });
+    } catch {
+      // 계정 생성 자체는 성공했으므로, 자동 로그인만 실패해도 회원가입은 성공으로 처리(로그인 페이지에서 다시 로그인하면 됨)
+    }
     return { ok: true };
   }
 
-  function logout() {
-    dispatch({ type: "LOGOUT" });
-    localStorage.removeItem(SESSION_KEY);
+  async function logout(): Promise<void> {
+    await firebaseSignOut(auth);
   }
 
   async function deleteAccount(password: string): Promise<{ ok: boolean; error?: string }> {
     if (!state.currentUser) return { ok: false, error: "로그인 상태가 아닙니다." };
-    const hashed = await hashPassword(password);
-    const snap = await getDocs(query(collection(db, USERS_COL), where("username", "==", state.currentUser.username)));
-    if (snap.empty) return { ok: false, error: "사용자를 찾을 수 없습니다." };
-    const data = snap.docs[0].data();
-    if (data.password !== hashed) return { ok: false, error: "비밀번호가 올바르지 않습니다." };
-    await deleteDoc(doc(db, USERS_COL, snap.docs[0].id));
-    dispatch({ type: "LOGOUT" });
-    localStorage.removeItem(SESSION_KEY);
+    const res = await fetch("/api/auth/delete-account", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: state.currentUser.username, password }),
+    });
+    const result = (await res.json()) as { ok: boolean; error?: string };
+    if (!result.ok) return result;
+    await firebaseSignOut(auth);
     return { ok: true };
   }
 
@@ -602,10 +600,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const userId = state.currentUser.id;
     await updateDoc(doc(db, USERS_COL, userId), { signatureImage: imageDataUrl ?? deleteField() });
     dispatch({ type: "UPDATE_USER_SIGNATURE", payload: imageDataUrl ?? undefined });
-    try {
-      const stored = JSON.parse(localStorage.getItem(SESSION_KEY) ?? "{}") as User;
-      localStorage.setItem(SESSION_KEY, JSON.stringify({ ...stored, signatureImage: imageDataUrl ?? undefined }));
-    } catch {}
   }
 
   function showNotification(message: string, type: "success" | "error" = "success") {
