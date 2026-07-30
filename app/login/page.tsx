@@ -23,6 +23,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = safeNextPath(searchParams.get("next")) ?? "/dashboard";
+  const justReset = searchParams.get("reset") === "1";
 
   useEffect(() => {
     if (state.currentUser) router.replace(nextPath);
@@ -73,6 +74,13 @@ function LoginForm() {
             <p className="text-sm text-on-surface-variant mt-1">사내 연차 관리 시스템</p>
           </div>
 
+          {justReset && !error && (
+            <div className="flex items-center gap-2 p-3 mb-5 bg-green-50 rounded-lg text-sm text-green-700">
+              <span className="material-symbols-outlined text-lg">check_circle</span>
+              비밀번호가 변경되었습니다. 새 비밀번호로 로그인해주세요.
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="space-y-5" noValidate>
             <div>
               <label className="block text-xs font-semibold text-on-surface-variant mb-1.5 uppercase tracking-wider">아이디</label>
@@ -101,6 +109,9 @@ function LoginForm() {
                   className="w-full pl-10 pr-4 py-3 border border-outline-variant rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition"
                   autoComplete="current-password"
                 />
+              </div>
+              <div className="text-right mt-1.5">
+                <Link href="/forgot-password" className="text-xs text-on-surface-variant hover:text-primary hover:underline">비밀번호를 잊으셨나요?</Link>
               </div>
             </div>
 

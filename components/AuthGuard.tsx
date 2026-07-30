@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useStore } from "@/lib/store";
 
 // 로그인 없이 접근 가능한 경로 — 로그아웃 상태에서 이 경로들은 리다이렉트하지 않음
-const PUBLIC_PATHS = ["/login", "/signup"];
+const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password"];
 
 /**
  * 페이지 컴포넌트가 자체적으로 `if (!user) return null`로 조기 반환하면
