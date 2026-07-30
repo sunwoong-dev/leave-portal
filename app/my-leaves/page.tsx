@@ -34,8 +34,17 @@ export default function MyLeavesPage() {
   const endDateInitialized = useRef(false);
   const [page, setPage] = useState(1);
   const [allUsersTotalLeave, setAllUsersTotalLeave] = useState(0);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pdfLoading, setPdfLoading] = useState(false);
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const [perPage, setPerPage] = useState(10);
@@ -147,17 +156,23 @@ export default function MyLeavesPage() {
     }
   }
 
-  function handleExport() {
-    if (!selectedId) {
+  async function handleExport() {
+    if (selectedIds.size === 0) {
       showNotification("PDF로 저장할 신청 건을 먼저 선택해주세요.", "error");
       return;
     }
-    const req = myRequests.find((r) => r.id === selectedId);
-    if (!req) return;
+    const reqs = myRequests.filter((r) => selectedIds.has(r.id));
     setPdfLoading(true);
-    generateLeavePDF(req)
-      .catch(() => showNotification("PDF 생성 중 오류가 발생했습니다.", "error"))
-      .finally(() => setPdfLoading(false));
+    try {
+      // 브라우저 다운로드 다이얼로그/DOM 조작이 겹치지 않도록 하나씩 순서대로 생성
+      for (const req of reqs) {
+        await generateLeavePDF(req);
+      }
+    } catch {
+      showNotification("PDF 생성 중 오류가 발생했습니다.", "error");
+    } finally {
+      setPdfLoading(false);
+    }
   }
 
   return (
@@ -346,13 +361,13 @@ export default function MyLeavesPage() {
                 <button
                   onClick={() => handleExport()}
                   disabled={pdfLoading}
-                  className={`flex items-center gap-1 px-2.5 py-1.5 border rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${selectedId
+                  className={`flex items-center gap-1 px-2.5 py-1.5 border rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${selectedIds.size > 0
                     ? "border-primary text-primary hover:bg-primary/10"
                     : "border-outline-variant hover:bg-surface-container-low"
                     }`}
                 >
                   <span className="material-symbols-outlined text-base">picture_as_pdf</span>
-                  {pdfLoading ? "생성 중..." : "PDF"}
+                  {pdfLoading ? "생성 중..." : selectedIds.size > 0 ? `PDF (${selectedIds.size})` : "PDF"}
                 </button>
               </div>
             </div>
@@ -378,11 +393,11 @@ export default function MyLeavesPage() {
                       </td>
                     </tr>
                   ) : paginated.map((r) => {
-                    const isSelected = selectedId === r.id;
+                    const isSelected = selectedIds.has(r.id);
                     return (
                       <tr
                         key={r.id}
-                        onClick={() => setSelectedId(isSelected ? null : r.id)}
+                        onClick={() => toggleSelect(r.id)}
                         className={`cursor-pointer transition-colors ${isSelected ? "bg-primary/10" : "hover:bg-primary/5"}`}
                       >
                         <td className="px-5 py-3.5 text-sm font-semibold text-on-surface">{r.userName}</td>

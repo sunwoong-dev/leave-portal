@@ -218,11 +218,10 @@ function buildFormHTML(req: LeaveRequest, applicantJoinDate?: string, applicantS
       <!-- 서명 -->
       <div style="text-align:right; margin-top:52px; font-size:13px; line-height:2.6;">
         <p style="margin:0;">신청일: ${fmtISODate(req.createdAt)}</p>
-        <p style="margin:0;">신청인: ${req.userName}${
-          applicantSignature
-            ? `<img src="${applicantSignature}" style="height:34px; vertical-align:middle; margin:0 6px;" />`
-            : "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
-        }(인)</p>
+        <p style="margin:0;">신청인: ${req.userName}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="position:relative; display:inline-block; width:48px; height:48px; vertical-align:middle;">
+          <span style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center;">(인)</span>
+          ${applicantSignature ? `<img src="${applicantSignature}" style="position:absolute; inset:0; width:100%; height:100%; object-fit:contain; pointer-events:none;" />` : ""}
+        </span></p>
       </div>
     </div>
   `;
