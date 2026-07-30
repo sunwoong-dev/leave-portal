@@ -149,7 +149,7 @@ export default function DashboardPage() {
     if (!user.isManager) return;
     getDocs(collection(db, "leave_portal_users")).then((snap) => {
       const list: SimpleUser[] = snap.docs
-        .filter((d) => !(d.data().isManager as boolean))
+        .filter((d) => !(d.data().isManager as boolean) && !d.data().resignationDate)
         .map((d) => {
           const data = d.data();
           const joinDate = (data.joinDate as string) ?? "";

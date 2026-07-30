@@ -185,7 +185,7 @@ export default function Header({
                   className="w-full text-left px-4 py-3 text-sm hover:bg-error-container/30 flex items-center gap-2 text-error border-t border-outline-variant"
                   onClick={openDeleteModal}
                 >
-                  <span className="material-symbols-outlined text-lg">person_remove</span> 회원탈퇴
+                  <span className="material-symbols-outlined text-lg">person_remove</span> 퇴사하기
                 </button>
               </div>
             )}
@@ -207,14 +207,14 @@ export default function Header({
                   <span className="material-symbols-outlined text-error text-xl">warning</span>
                 </div>
                 <div>
-                  <h3 className="font-bold text-base text-on-surface">회원탈퇴</h3>
-                  <p className="text-xs text-on-surface-variant mt-0.5">탈퇴 후에는 복구가 불가합니다.</p>
+                  <h3 className="font-bold text-base text-on-surface">퇴사하기</h3>
+                  <p className="text-xs text-on-surface-variant mt-0.5">퇴사 후에는 복구가 불가합니다.</p>
                 </div>
               </div>
             </div>
             <div className="px-6 py-5 space-y-4">
               <p className="text-sm text-on-surface-variant">
-                탈퇴를 진행하려면 현재 비밀번호를 입력해주세요.
+                퇴사를 진행하려면 현재 비밀번호를 입력해주세요.
               </p>
               <div>
                 <label className="block text-xs font-bold text-on-surface-variant mb-1.5">비밀번호</label>
@@ -242,7 +242,7 @@ export default function Header({
                 disabled={deleteLoading}
                 className="flex-1 py-2.5 bg-error text-white rounded-xl text-sm font-bold hover:opacity-90 transition disabled:opacity-50"
               >
-                {deleteLoading ? "처리 중..." : "탈퇴하기"}
+                {deleteLoading ? "처리 중..." : "퇴사하기"}
               </button>
             </div>
           </div>

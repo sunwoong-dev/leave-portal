@@ -62,9 +62,9 @@ export default function MyLeavesPage() {
 
   useEffect(() => {
     getDocs(collection(db, "leave_portal_users")).then((snap) => {
-      const total = snap.docs.reduce((sum, d) => {
-        return sum + calcTotalLeave((d.data().joinDate as string) ?? "");
-      }, 0);
+      const total = snap.docs
+        .filter((d) => !d.data().resignationDate)
+        .reduce((sum, d) => sum + calcTotalLeave((d.data().joinDate as string) ?? ""), 0);
       setAllUsersTotalLeave(total);
     });
   }, []);

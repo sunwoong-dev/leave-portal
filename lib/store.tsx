@@ -37,7 +37,8 @@ type Action =
   | { type: "SET_APP_NOTIFICATIONS"; payload: AppNotification[] }
   | { type: "SET_NOTIFICATION"; payload: { message: string; type: "success" | "error" } | null }
   | { type: "UPDATE_USER_BALANCE"; payload: number }
-  | { type: "UPDATE_USER_SIGNATURE"; payload: string | undefined };
+  | { type: "UPDATE_USER_SIGNATURE"; payload: string | undefined }
+  | { type: "UPDATE_MUST_CHANGE_PASSWORD"; payload: boolean };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -59,6 +60,9 @@ function reducer(state: State, action: Action): State {
     case "UPDATE_USER_SIGNATURE":
       if (!state.currentUser) return state;
       return { ...state, currentUser: { ...state.currentUser, signatureImage: action.payload } };
+    case "UPDATE_MUST_CHANGE_PASSWORD":
+      if (!state.currentUser) return state;
+      return { ...state, currentUser: { ...state.currentUser, mustChangePassword: action.payload } };
     default:
       return state;
   }
@@ -95,6 +99,8 @@ interface StoreContextType {
   updateLeaveStatus: (id: string, status: "approved" | "rejected", note?: string) => Promise<void>;
   deleteLeave: (id: string) => Promise<void>;
   updateSignature: (imageDataUrl: string | null) => Promise<void>;
+  setResignation: (userId: string, date: string | null) => Promise<void>;
+  reinstateEmployee: (userId: string, newJoinDate: string) => Promise<void>;
   showNotification: (message: string, type?: "success" | "error") => void;
   markNotificationsRead: () => Promise<void>;
 }
@@ -126,6 +132,8 @@ function buildUser(id: string, data: Record<string, unknown>): User {
     isManager: (data.isManager as boolean) ?? false,
     initials: (data.initials as string) ?? makeInitials(data.name as string),
     signatureImage: data.signatureImage as string | undefined,
+    resignationDate: data.resignationDate as string | undefined,
+    mustChangePassword: !!data.mustChangePassword,
   };
 }
 
@@ -263,6 +271,11 @@ async function loadUserSession(uid: string): Promise<User | null> {
   const userDoc = await getDoc(doc(db, USERS_COL, uid));
   if (!userDoc.exists()) return null;
   const data = userDoc.data();
+  if (data.resignationDate) {
+    // 세션 유지 중에 관리자가 퇴사 처리한 경우도 즉시 강제 로그아웃
+    await firebaseSignOut(auth).catch(() => {});
+    return null;
+  }
   let user = buildUser(uid, data);
   if (data.leaveBalance === undefined) {
     user.leaveBalance = await migrateLeaveBalance(uid, user.totalLeave);
@@ -318,14 +331,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => unsubscribe();
   }, []);
 
-  // 현재 로그인 유저의 leaveBalance 실시간 동기화
+  // 현재 로그인 유저의 leaveBalance/비밀번호 변경 필요 여부 실시간 동기화
   useEffect(() => {
     if (!state.currentUser) return;
     const userId = state.currentUser.id;
     const unsubscribe = onSnapshot(doc(db, USERS_COL, userId), (docSnap) => {
       if (docSnap.exists()) {
-        const lb = docSnap.data().leaveBalance as number | undefined;
+        const data = docSnap.data();
+        const lb = data.leaveBalance as number | undefined;
         if (lb !== undefined) dispatch({ type: "UPDATE_USER_BALANCE", payload: lb });
+        dispatch({ type: "UPDATE_MUST_CHANGE_PASSWORD", payload: !!data.mustChangePassword });
       }
     });
     return () => unsubscribe();
@@ -602,6 +617,29 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: "UPDATE_USER_SIGNATURE", payload: imageDataUrl ?? undefined });
   }
 
+  // 관리자가 직원을 퇴사 처리함. 데이터는 삭제하지 않고 resignationDate만 세팅 —
+  // 재직 여부만 이 필드로 구분하는 소프트 삭제 방식. 퇴사 중엔 로그인도 막힘(서버에서 체크).
+  async function setResignation(userId: string, date: string | null) {
+    await updateDoc(doc(db, USERS_COL, userId), { resignationDate: date ?? deleteField() });
+  }
+
+  // 복직 처리 = 완전히 새로 입사하는 것으로 취급: resignationDate 해제 + 입사일 새로 세팅
+  // + 연차를 새 입사일 기준 초기값으로 리셋(근속연수 이어받지 않음, 과거 신청/부여 기록은 그대로 보존)
+  // + 오래 안 써서 비밀번호를 잊었을 가능성이 높으니 기본값("1234")으로 초기화, 로그인 후 설정에서 변경하면 됨.
+  async function reinstateEmployee(userId: string, newJoinDate: string) {
+    const initialBalance = calcTotalLeave(newJoinDate);
+    const defaultPasswordHash = await hashPassword("1234");
+    await updateDoc(doc(db, USERS_COL, userId), {
+      resignationDate: deleteField(),
+      joinDate: newJoinDate,
+      totalLeave: initialBalance,
+      leaveBalance: initialBalance,
+      annualLeaveYearGenerated: deleteField(),
+      password: defaultPasswordHash,
+      mustChangePassword: true,
+    });
+  }
+
   function showNotification(message: string, type: "success" | "error" = "success") {
     dispatch({ type: "SET_NOTIFICATION", payload: { message, type } });
   }
@@ -634,7 +672,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const unreadCount = state.appNotifications.filter((n) => !n.read).length;
 
   return (
-    <StoreContext.Provider value={{ state, hydrated, usedLeave, grantedDays, unusedGrantDays, unreadCount, login, signup, logout, deleteAccount, addLeave, updateLeaveRequest, addGrant, updateLeaveStatus, deleteLeave, updateSignature, showNotification, markNotificationsRead }}>
+    <StoreContext.Provider value={{ state, hydrated, usedLeave, grantedDays, unusedGrantDays, unreadCount, login, signup, logout, deleteAccount, addLeave, updateLeaveRequest, addGrant, updateLeaveStatus, deleteLeave, updateSignature, setResignation, reinstateEmployee, showNotification, markNotificationsRead }}>
       {children}
       {state.notification && (
         <div className={`fixed bottom-8 right-8 px-6 py-4 rounded-xl shadow-xl flex items-center gap-3 z-50 transition-all duration-300 ${

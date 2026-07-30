@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import AppLayout from "@/components/AppLayout";
 import { useStore } from "@/lib/store";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, query, where, updateDoc, doc, type DocumentReference } from "firebase/firestore";
+import { collection, getDocs, query, where, updateDoc, doc, deleteField, type DocumentReference } from "firebase/firestore";
+import { PASSWORD_MIN_LENGTH, ALLOWED_SPECIAL_CHARS, checkPasswordPolicy } from "@/lib/passwordPolicy";
 
 async function hashPassword(password: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(password));
@@ -12,28 +13,6 @@ async function hashPassword(password: string): Promise<string> {
 }
 
 const MAX_SIGNATURE_BYTES = 400 * 1024; // base64 데이터 URL 기준 (Firestore 문서 크기 고려)
-
-// 아이디 규칙(영문/숫자/밑줄만 허용, app/signup/page.tsx)과 동일하게 영문/숫자 기반에
-// 비밀번호 전용으로 허용할 특수문자만 추가
-const PASSWORD_MIN_LENGTH = 10;
-const ALLOWED_SPECIAL_CHARS = "!@#$%^&*()_-+=";
-const ALLOWED_SPECIAL_REGEX = "!@#\\$%\\^&\\*\\(\\)_\\-\\+=";
-
-function checkPasswordPolicy(pw: string) {
-  const hasLetter = /[A-Za-z]/.test(pw);
-  const hasDigit = /\d/.test(pw);
-  const hasSpecial = new RegExp(`[${ALLOWED_SPECIAL_REGEX}]`).test(pw);
-  const onlyAllowedChars = new RegExp(`^[A-Za-z0-9${ALLOWED_SPECIAL_REGEX}]*$`).test(pw);
-  const longEnough = pw.length >= PASSWORD_MIN_LENGTH;
-  return {
-    hasLetter,
-    hasDigit,
-    hasSpecial,
-    onlyAllowedChars,
-    longEnough,
-    valid: hasLetter && hasDigit && hasSpecial && onlyAllowedChars && longEnough,
-  };
-}
 
 export default function SettingsPage() {
   const { state, usedLeave, grantedDays, showNotification, updateSignature } = useStore();
@@ -79,7 +58,7 @@ export default function SettingsPage() {
     setPwSaving(true);
     try {
       const newHashed = await hashPassword(newPw);
-      await updateDoc(userDocRef, { password: newHashed });
+      await updateDoc(userDocRef, { password: newHashed, mustChangePassword: deleteField() });
       showNotification("비밀번호가 변경되었습니다.");
       setCurrentPw(""); setNewPw(""); setConfirmPw("");
     } catch {

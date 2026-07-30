@@ -39,20 +39,30 @@ export default function Sidebar({ mobileOpen, onClose }: { mobileOpen?: boolean;
       <nav className="px-4 space-y-1 flex-1">
         {[...baseNavItems, ...(user?.isManager ? managerNavItems : [])].map((item) => {
           const active = pathname === item.href || pathname.startsWith(item.href + "/");
+          const showPasswordBubble = item.href === "/settings" && !!user?.mustChangePassword;
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onClose}
-              className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
-                active
-                  ? "bg-secondary-container text-on-secondary-container font-bold"
-                  : "text-on-surface-variant hover:bg-surface-container-high"
-              }`}
-            >
-              <span className="material-symbols-outlined text-xl">{item.icon}</span>
-              <span>{item.label}</span>
-            </Link>
+            <div key={item.href} className="relative">
+              <Link
+                href={item.href}
+                onClick={onClose}
+                className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+                  active
+                    ? "bg-secondary-container text-on-secondary-container font-bold"
+                    : "text-on-surface-variant hover:bg-surface-container-high"
+                }`}
+              >
+                <span className="material-symbols-outlined text-xl">{item.icon}</span>
+                <span>{item.label}</span>
+              </Link>
+              {showPasswordBubble && (
+                <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 z-50 w-max max-w-[200px]">
+                  <div className="relative bg-error text-white text-xs font-bold px-3 py-2 rounded-lg shadow-lg">
+                    비밀번호를 변경해주세요
+                    <div className="absolute right-full top-1/2 -translate-y-1/2 border-4 border-transparent border-r-error" />
+                  </div>
+                </div>
+              )}
+            </div>
           );
         })}
       </nav>

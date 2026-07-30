@@ -44,6 +44,7 @@ export default function ApprovalPage() {
     if (!isManager) return;
     getDocs(collection(db, "leave_portal_users")).then((snap) => {
       const list: SimpleUser[] = snap.docs
+        .filter((d) => !d.data().resignationDate)
         .map((d) => {
           const data = d.data();
           const joinDate = (data.joinDate as string) ?? "";

@@ -25,8 +25,12 @@ export async function POST(req: NextRequest) {
     }
 
     const userDoc = snap.docs[0];
-    if (userDoc.data().password !== hashPassword(password)) {
+    const userData = userDoc.data();
+    if (userData.password !== hashPassword(password)) {
       return NextResponse.json({ ok: false, code: "wrong_password" }, { status: 401 });
+    }
+    if (userData.resignationDate) {
+      return NextResponse.json({ ok: false, code: "resigned" }, { status: 403 });
     }
 
     // Firestore 문서 ID를 그대로 Firebase Auth uid로 사용 — 앱 전역에서 userId로 이미 쓰이는

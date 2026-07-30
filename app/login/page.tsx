@@ -51,6 +51,8 @@ function LoginForm() {
       const code = (err as { code?: string }).code;
       if (code === "not_found" || code === "wrong_password") {
         setError("아이디 또는 비밀번호가 올바르지 않습니다.");
+      } else if (code === "resigned") {
+        setError("퇴사 처리된 계정입니다. 복직 처리가 필요하면 관리자에게 문의해주세요.");
       } else {
         setError("로그인 중 오류가 발생했습니다.");
       }

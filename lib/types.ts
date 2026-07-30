@@ -13,6 +13,8 @@ export interface User {
   initials: string;
   fcmToken?: string;
   signatureImage?: string; // base64 데이터 URL — 등록 시 PDF 서명란에 자동 삽입
+  resignationDate?: string; // 값이 있으면 퇴사 처리된 직원(YYYY-MM-DD). 없으면 재직 중.
+  mustChangePassword?: boolean; // 복직 시 비밀번호가 1234로 초기화됨 — 실제로 변경하기 전까지 true
 }
 
 export interface AppNotification {

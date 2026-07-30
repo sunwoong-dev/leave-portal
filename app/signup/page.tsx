@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useStore } from "@/lib/store";
 import { calcTotalLeave, getLeaveTypeLabel } from "@/lib/leaveCalc";
+import { PASSWORD_MIN_LENGTH, ALLOWED_SPECIAL_CHARS, checkPasswordPolicy } from "@/lib/passwordPolicy";
 import Link from "next/link";
 
 export default function SignupPage() {
@@ -17,6 +18,10 @@ export default function SignupPage() {
   useEffect(() => {
     if (state.currentUser) router.replace("/dashboard");
   }, [state.currentUser, router]);
+
+  const pwPolicy = useMemo(() => checkPasswordPolicy(form.password), [form.password]);
+  const pwValid = form.password.length > 0 && pwPolicy.valid;
+  const confirmPwValid = form.confirmPassword.length > 0 && form.confirmPassword === form.password;
 
   function set(key: string, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -33,8 +38,8 @@ export default function SignupPage() {
       return;
     }
     if (!form.joinDate) { setError("입사일을 입력해주세요."); return; }
-    if (form.password.length < 6) { setError("비밀번호는 6자 이상이어야 합니다."); return; }
-    if (form.password !== form.confirmPassword) { setError("비밀번호가 일치하지 않습니다."); return; }
+    if (!pwValid) { setError(`비밀번호는 ${PASSWORD_MIN_LENGTH}자 이상, 영문+숫자+특수문자(${ALLOWED_SPECIAL_CHARS})를 포함해야 합니다.`); return; }
+    if (!confirmPwValid) { setError("비밀번호가 일치하지 않습니다."); return; }
 
     setLoading(true);
     try {
@@ -95,13 +100,55 @@ export default function SignupPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-on-surface-variant mb-1.5">비밀번호 * (6자 이상)</label>
-              <input type="password" value={form.password} onChange={(e) => set("password", e.target.value)} placeholder="••••••" className={inputCls} autoComplete="new-password" />
+              <label className="block text-xs font-semibold text-on-surface-variant mb-1.5">비밀번호 *</label>
+              <div className="relative">
+                <input
+                  type="password"
+                  value={form.password}
+                  onChange={(e) => set("password", e.target.value)}
+                  placeholder={`${PASSWORD_MIN_LENGTH}자 이상, 영문+숫자+특수문자 포함`}
+                  className={`${inputCls} pr-9`}
+                  autoComplete="new-password"
+                />
+                {form.password && (
+                  <span className={`material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-lg ${pwValid ? "text-green-600" : "text-error"}`}>
+                    {pwValid ? "check_circle" : "cancel"}
+                  </span>
+                )}
+              </div>
+              {form.password && (
+                <ul className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs">
+                  <li className={pwPolicy.longEnough ? "text-green-600" : "text-on-surface-variant"}>· {PASSWORD_MIN_LENGTH}자 이상</li>
+                  <li className={pwPolicy.hasLetter ? "text-green-600" : "text-on-surface-variant"}>· 영문 포함</li>
+                  <li className={pwPolicy.hasDigit ? "text-green-600" : "text-on-surface-variant"}>· 숫자 포함</li>
+                  <li className={pwPolicy.hasSpecial ? "text-green-600" : "text-on-surface-variant"}>· 특수문자 포함</li>
+                  {!pwPolicy.onlyAllowedChars && (
+                    <li className="col-span-2 text-error">· 사용 가능한 문자만 입력해주세요 (영문/숫자/{ALLOWED_SPECIAL_CHARS})</li>
+                  )}
+                </ul>
+              )}
             </div>
 
             <div>
               <label className="block text-xs font-semibold text-on-surface-variant mb-1.5">비밀번호 확인 *</label>
-              <input type="password" value={form.confirmPassword} onChange={(e) => set("confirmPassword", e.target.value)} placeholder="••••••" className={inputCls} autoComplete="new-password" />
+              <div className="relative">
+                <input
+                  type="password"
+                  value={form.confirmPassword}
+                  onChange={(e) => set("confirmPassword", e.target.value)}
+                  placeholder="비밀번호 재입력"
+                  className={`${inputCls} pr-9`}
+                  autoComplete="new-password"
+                />
+                {form.confirmPassword && (
+                  <span className={`material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-lg ${confirmPwValid ? "text-green-600" : "text-error"}`}>
+                    {confirmPwValid ? "check_circle" : "cancel"}
+                  </span>
+                )}
+              </div>
+              {form.confirmPassword && !confirmPwValid && (
+                <p className="text-xs text-error mt-1">비밀번호가 일치하지 않습니다.</p>
+              )}
             </div>
 
             {error && (
@@ -113,7 +160,7 @@ export default function SignupPage() {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !pwValid || !confirmPwValid}
               className="w-full py-3 bg-primary text-white font-bold rounded-xl hover:opacity-90 transition-all active:scale-95 disabled:opacity-60 flex items-center justify-center gap-2 mt-1"
             >
               {loading
