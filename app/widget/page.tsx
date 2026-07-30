@@ -83,11 +83,8 @@ export default function WidgetPage() {
   }
 
   if (!user.isManager) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-white">
-        <p className="text-sm text-gray-500">관리자 전용 기능입니다.</p>
-      </div>
-    );
+    router.replace("/dashboard");
+    return null;
   }
 
   const firstDow = new Date(viewYear, viewMonth, 1).getDay();

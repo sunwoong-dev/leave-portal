@@ -1,21 +1,32 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useStore } from "@/lib/store";
+import { safeNextPath } from "@/lib/safeNextPath";
 import Link from "next/link";
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const { login, state } = useStore();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const nextPath = safeNextPath(searchParams.get("next")) ?? "/dashboard";
 
   useEffect(() => {
-    if (state.currentUser) router.replace("/dashboard");
-  }, [state.currentUser, router]);
+    if (state.currentUser) router.replace(nextPath);
+  }, [state.currentUser, router, nextPath]);
 
   useEffect(() => {
     const saved = localStorage.getItem("leave_portal_autofill");
@@ -35,7 +46,7 @@ export default function LoginPage() {
     try {
       await login(username.trim(), password);
       localStorage.setItem("leave_portal_autofill", JSON.stringify({ u: username.trim(), p: password }));
-      router.push("/dashboard");
+      router.push(nextPath);
     } catch (err) {
       const code = (err as { code?: string }).code;
       if (code === "not_found" || code === "wrong_password") {

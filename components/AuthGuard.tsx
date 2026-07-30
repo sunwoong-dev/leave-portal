@@ -21,7 +21,9 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!hydrated) return;
     if (!state.currentUser && !PUBLIC_PATHS.includes(pathname)) {
-      router.replace("/login");
+      // 비회원이 /dashboard, /my-leaves 등 특정 링크로 바로 들어왔을 때, 로그인 후
+      // 그 링크로 되돌아갈 수 있도록 원래 경로를 next 파라미터로 실어 보냄
+      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
     }
   }, [hydrated, state.currentUser, pathname, router]);
 
