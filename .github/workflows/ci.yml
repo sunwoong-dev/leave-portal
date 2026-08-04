@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Build
+        env:
+          # Firebase 클라이언트 설정값 — Firestore 보안 규칙이 실제 방어선이라 공개되어도 무방한 값들
+          # (이 저장소의 scripts/*.mjs에도 동일하게 평문으로 포함되어 있음). 배포 자격증명
+          # (FIREBASE_SERVICE_ACCOUNT_KEY, CRON_SECRET)은 빌드에 필요 없어 CI에 넣지 않음 — 실제
+          # 배포는 Vercel 환경변수로만 이루어짐.
+          NEXT_PUBLIC_FIREBASE_API_KEY: AIzaSyDdCsrA_KeMwfATAHb-UQ63qfmxhUfALtk
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: stitch-a57f3.firebaseapp.com
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: stitch-a57f3
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: stitch-a57f3.firebasestorage.app
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "461921219558"
+          NEXT_PUBLIC_FIREBASE_APP_ID: "1:461921219558:web:71c6228f252d7204f49c27"
+        run: npm run build

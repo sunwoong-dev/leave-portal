@@ -9,7 +9,8 @@ import {
 } from "firebase/firestore";
 import { onAuthStateChanged, signInWithCustomToken, signOut as firebaseSignOut } from "firebase/auth";
 import { calcTotalLeave, currentLeaveYearStart } from "./leaveCalc";
-import { activeGrantBalance, grantCeilingTotal, planGrantConsumption, findExpiredUnclaimedGrants } from "./grantLedger";
+import { activeGrantBalance, grantCeilingTotal, planGrantConsumption, findExpiredUnclaimedGrants, calcUsedLeave } from "./grantLedger";
+import { maskName } from "./piiMask";
 
 const USERS_COL = "leave_portal_users";
 const REQUESTS_COL = "leave_portal_requests";
@@ -100,14 +101,14 @@ interface StoreContextType {
   deleteLeave: (id: string) => Promise<void>;
   updateSignature: (imageDataUrl: string | null) => Promise<void>;
   setResignation: (userId: string, date: string | null) => Promise<void>;
-  reinstateEmployee: (userId: string, newJoinDate: string) => Promise<void>;
+  reinstateEmployee: (userId: string, newJoinDate: string, newName: string) => Promise<void>;
   showNotification: (message: string, type?: "success" | "error") => void;
   markNotificationsRead: () => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextType | null>(null);
 
-function makeInitials(name: string): string {
+export function makeInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
   if (parts.length >= 2) return parts.map((p) => p[0]).join("").toUpperCase().slice(0, 2);
   return name.slice(0, 2).toUpperCase();
@@ -617,21 +618,39 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: "UPDATE_USER_SIGNATURE", payload: imageDataUrl ?? undefined });
   }
 
-  // 관리자가 직원을 퇴사 처리함. 데이터는 삭제하지 않고 resignationDate만 세팅 —
-  // 재직 여부만 이 필드로 구분하는 소프트 삭제 방식. 퇴사 중엔 로그인도 막힘(서버에서 체크).
+  // 관리자가 직원을 퇴사 처리함. 데이터(연차 신청/부여 이력)는 삭제하지 않고 resignationDate만
+  // 세팅 — 재직 여부만 이 필드로 구분하는 소프트 삭제 방식. 퇴사 중엔 로그인도 막힘(서버에서 체크).
+  // 퇴사와 동시에 이름은 비가역 부분 마스킹("문선웅" -> "문*웅"), 서명 이미지/FCM 토큰은 더 이상
+  // 필요 없는 민감 정보라 완전히 제거. resignationDate가 3년 지나면 별도 배치(cron)가 전체 삭제함.
   async function setResignation(userId: string, date: string | null) {
-    await updateDoc(doc(db, USERS_COL, userId), { resignationDate: date ?? deleteField() });
+    if (!date) {
+      await updateDoc(doc(db, USERS_COL, userId), { resignationDate: deleteField() });
+      return;
+    }
+    const snap = await getDoc(doc(db, USERS_COL, userId));
+    const currentName = snap.exists() ? (snap.data().name as string | undefined) : undefined;
+    await updateDoc(doc(db, USERS_COL, userId), {
+      resignationDate: date,
+      ...(currentName ? { name: maskName(currentName) } : {}),
+      signatureImage: deleteField(),
+      fcmToken: deleteField(),
+    });
   }
 
   // 복직 처리 = 완전히 새로 입사하는 것으로 취급: resignationDate 해제 + 입사일 새로 세팅
+  // (이 시점에 3년 파기 타이머도 함께 초기화됨 — 파기 배치는 resignationDate 존재 여부로만 판단하므로)
   // + 연차를 새 입사일 기준 초기값으로 리셋(근속연수 이어받지 않음, 과거 신청/부여 기록은 그대로 보존)
+  // + 퇴사 시 이름이 마스킹되어 원본을 복원할 수 없으므로, 관리자가 재입력한 실명으로 교체
   // + 오래 안 써서 비밀번호를 잊었을 가능성이 높으니 기본값("1234")으로 초기화, 로그인 후 설정에서 변경하면 됨.
-  async function reinstateEmployee(userId: string, newJoinDate: string) {
+  async function reinstateEmployee(userId: string, newJoinDate: string, newName: string) {
     const initialBalance = calcTotalLeave(newJoinDate);
     const defaultPasswordHash = await hashPassword("1234");
+    const name = newName.trim();
     await updateDoc(doc(db, USERS_COL, userId), {
       resignationDate: deleteField(),
       joinDate: newJoinDate,
+      name,
+      initials: makeInitials(name),
       totalLeave: initialBalance,
       leaveBalance: initialBalance,
       annualLeaveYearGenerated: deleteField(),
@@ -649,14 +668,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     await Promise.all(unread.map((n) => updateDoc(doc(db, NOTIF_COL, n.id), { read: true })));
   }
 
-  // 사용된 연차 합산 (표시용) — 병가/예비군 제외, 현재 연차 연도 이후 사용분만 집계
+  // 사용된 연차 합산 (표시용) — 병가/예비군 제외, 정규분은 현재 연차 연도만 집계하되
+  // 부여(grant) 소진분은 grant 자체의 remainingDays로 판단 (연차 연도 경계와 무관하게 정확)
   const usedLeave = state.currentUser
-    ? (() => {
-        const yearStart = currentLeaveYearStart(state.currentUser!.joinDate ?? "");
-        return state.leaveRequests
-          .filter((r) => r.userId === state.currentUser!.id && r.status === "approved" && !NO_DEDUCTION_TYPES.includes(r.type) && r.startDate >= yearStart)
-          .reduce((sum, r) => sum + r.days, 0);
-      })()
+    ? calcUsedLeave(state.leaveRequests, state.leaveGrants, state.currentUser.id, currentLeaveYearStart(state.currentUser.joinDate ?? ""))
     : 0;
 
   // "총 연차"/"잔여" 산술용 — 만료 안 된 부여의 액면가 합계(사용 여부 무관, 이중차감 방지)

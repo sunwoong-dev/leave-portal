@@ -4,13 +4,14 @@ import { useState, useEffect } from "react";
 import { useStore } from "@/lib/store";
 import { LeaveType, DeadlineStatus, LEAVE_TYPE_LABELS, DEADLINE_STATUS_LABELS } from "@/lib/types";
 import { isHoliday } from "@/lib/holidays";
+import { toLocalDateStr, todayLocalStr } from "@/lib/dateUtils";
 
-const todayStr = new Date().toISOString().split("T")[0];
+const todayStr = todayLocalStr();
 
 function addMonths(dateStr: string, n: number): string {
   const d = new Date(dateStr + "T00:00:00");
   d.setMonth(d.getMonth() + n);
-  return d.toISOString().split("T")[0];
+  return toLocalDateStr(d);
 }
 const oneMonthAgoStr = addMonths(todayStr, -1);
 
@@ -27,7 +28,7 @@ function calcDays(start: string, end: string, type: LeaveType): number {
   const e = new Date(end + "T00:00:00");
   while (cur <= e) {
     const dow = cur.getDay();
-    const ds = cur.toISOString().split("T")[0];
+    const ds = toLocalDateStr(cur);
     if (dow !== 0 && dow !== 6 && !isHoliday(ds)) n++;
     cur.setDate(cur.getDate() + 1);
   }

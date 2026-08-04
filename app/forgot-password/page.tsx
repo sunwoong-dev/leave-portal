@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { PASSWORD_MIN_LENGTH, ALLOWED_SPECIAL_CHARS, checkPasswordPolicy } from "@/lib/passwordPolicy";
+import { todayLocalStr } from "@/lib/dateUtils";
 import Link from "next/link";
 
 export default function ForgotPasswordPage() {
@@ -85,7 +86,7 @@ export default function ForgotPasswordPage() {
 
             <div>
               <label className="block text-xs font-semibold text-on-surface-variant mb-1.5">입사일 *</label>
-              <input type="date" value={form.joinDate} onChange={(e) => set("joinDate", e.target.value)} className={inputCls} max={new Date().toISOString().split("T")[0]} />
+              <input type="date" value={form.joinDate} onChange={(e) => set("joinDate", e.target.value)} className={inputCls} max={todayLocalStr()} />
             </div>
 
             <div>

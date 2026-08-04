@@ -8,6 +8,7 @@ import { collection, getDocs, addDoc } from "firebase/firestore";
 import { LeaveType, DeadlineStatus, LEAVE_TYPE_LABELS, DEADLINE_STATUS_LABELS } from "@/lib/types";
 import { isHoliday } from "@/lib/holidays";
 import type { ParsedLeaveData } from "@/lib/pdfImport";
+import { toLocalDateStr } from "@/lib/dateUtils";
 
 const LEAVE_OPTIONS: [LeaveType, string][] = [
   ["annual", "연차"],
@@ -31,7 +32,7 @@ function calcDays(start: string, end: string, type: LeaveType): number {
   const e = new Date(end + "T00:00:00");
   while (cur <= e) {
     const dow = cur.getDay();
-    const ds = cur.toISOString().split("T")[0];
+    const ds = toLocalDateStr(cur);
     if (dow !== 0 && dow !== 6 && !isHoliday(ds)) n++;
     cur.setDate(cur.getDate() + 1);
   }

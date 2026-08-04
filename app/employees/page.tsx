@@ -3,11 +3,13 @@
 import { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import AppLayout from "@/components/AppLayout";
-import { useStore } from "@/lib/store";
+import { useStore, makeInitials } from "@/lib/store";
+import { maskName } from "@/lib/piiMask";
 import { db } from "@/lib/firebase";
 import { collection, getDocs } from "firebase/firestore";
 import { calcTotalLeave, currentLeaveYearStart, daysUntilLeaveRenewal } from "@/lib/leaveCalc";
-import { activeGrantBalance, grantCeilingTotal } from "@/lib/grantLedger";
+import { activeGrantBalance, grantCeilingTotal, calcUsedLeave } from "@/lib/grantLedger";
+import { todayLocalStr as todayStr } from "@/lib/dateUtils";
 
 interface EmpStat {
   id: string;
@@ -21,10 +23,6 @@ interface EmpStat {
   usedDays: number;
   remaining: number;
   resignationDate?: string;
-}
-
-function todayStr(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 export default function EmployeesPage() {
@@ -44,6 +42,7 @@ export default function EmployeesPage() {
   const [resignDate, setResignDate] = useState(todayStr());
   const [reinstateTarget, setReinstateTarget] = useState<{ id: string; name: string } | null>(null);
   const [rejoinDate, setRejoinDate] = useState(todayStr());
+  const [rejoinName, setRejoinName] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -73,9 +72,8 @@ export default function EmployeesPage() {
     .map((emp) => {
       const granted = grantCeilingTotal(state.leaveGrants, emp.id);
       const unusedGrant = activeGrantBalance(state.leaveGrants, emp.id);
-      const NO_DEDUCTION = ["sick", "reservist"];
       const yearStart = currentLeaveYearStart(emp.joinDate);
-      const used = state.leaveRequests.filter((r) => r.userId === emp.id && r.status === "approved" && !NO_DEDUCTION.includes(r.type) && r.startDate >= yearStart).reduce((s, r) => s + r.days, 0);
+      const used = calcUsedLeave(state.leaveRequests, state.leaveGrants, emp.id, yearStart);
       return { ...emp, grantedDays: granted, unusedGrantDays: unusedGrant, usedDays: used, remaining: emp.totalLeave + granted - used };
     })
     .sort((a, b) => a.name.localeCompare(b.name, "ko")),
@@ -95,7 +93,7 @@ export default function EmployeesPage() {
     setSaving(true);
     try {
       await setResignation(resignTarget.id, resignDate);
-      setBaseEmps((prev) => prev.map((e) => (e.id === resignTarget.id ? { ...e, resignationDate: resignDate } : e)));
+      setBaseEmps((prev) => prev.map((e) => (e.id === resignTarget.id ? { ...e, resignationDate: resignDate, name: maskName(e.name) } : e)));
       showNotification(`${resignTarget.name}님을 퇴사 처리했습니다.`);
       setResignTarget(null);
     } catch {
@@ -107,11 +105,15 @@ export default function EmployeesPage() {
 
   async function handleConfirmReinstate() {
     if (!reinstateTarget) return;
+    const name = rejoinName.trim();
+    if (!name) { showNotification("이름을 입력해주세요.", "error"); return; }
     setSaving(true);
     try {
-      await reinstateEmployee(reinstateTarget.id, rejoinDate);
-      setBaseEmps((prev) => prev.map((e) => (e.id === reinstateTarget.id ? { ...e, resignationDate: undefined, joinDate: rejoinDate } : e)));
-      showNotification(`${reinstateTarget.name}님을 복직 처리했습니다. 비밀번호는 1234로 초기화되었습니다.`);
+      await reinstateEmployee(reinstateTarget.id, rejoinDate, name);
+      setBaseEmps((prev) => prev.map((e) => (e.id === reinstateTarget.id
+        ? { ...e, resignationDate: undefined, joinDate: rejoinDate, name, initials: makeInitials(name) }
+        : e)));
+      showNotification(`${name}님을 복직 처리했습니다. 비밀번호는 1234로 초기화되었습니다.`);
       setReinstateTarget(null);
     } catch {
       showNotification("복직 처리 중 오류가 발생했습니다.", "error");
@@ -239,7 +241,7 @@ export default function EmployeesPage() {
                         </td>
                         <td className="px-6 py-4 text-right">
                           {activeTab === "resigned" ? (
-                            <button onClick={() => { setReinstateTarget({ id: emp.id, name: emp.name }); setRejoinDate(todayStr()); }} className="text-xs text-primary hover:underline font-medium">복직 처리</button>
+                            <button onClick={() => { setReinstateTarget({ id: emp.id, name: emp.name }); setRejoinDate(todayStr()); setRejoinName(emp.name); }} className="text-xs text-primary hover:underline font-medium">복직 처리</button>
                           ) : (
                             <button onClick={() => { setResignTarget({ id: emp.id, name: emp.name }); setResignDate(todayStr()); }} className="text-xs text-error hover:underline font-medium">퇴사 처리</button>
                           )}
@@ -271,7 +273,7 @@ export default function EmployeesPage() {
             </div>
             <div className="px-6 py-5 space-y-4">
               <p className="text-sm text-on-surface-variant">
-                퇴사자는 직원 목록에서 제외되고, 연차가 더 이상 자동으로 늘어나지 않으며 로그인도 막힙니다. 데이터는 삭제되지 않으며 언제든 복직 처리할 수 있습니다.
+                퇴사자는 직원 목록에서 제외되고, 연차가 더 이상 자동으로 늘어나지 않으며 로그인도 막힙니다. 이름은 부분 마스킹 처리되고 서명 이미지는 삭제됩니다. 연차 신청/부여 이력은 퇴사일로부터 3년간 보관 후 자동 파기되며, 그 전까지는 언제든 복직 처리할 수 있습니다.
               </p>
               <div>
                 <label className="block text-xs font-bold text-on-surface-variant mb-1.5">퇴사일</label>
@@ -322,6 +324,19 @@ export default function EmployeesPage() {
               <p className="text-sm text-on-surface-variant">
                 재입사일을 기준으로 근속·연차가 새로 시작됩니다(과거 신청/부여 이력은 그대로 보존됨). 비밀번호는 <span className="font-bold text-on-surface">1234</span>로 초기화되며, 로그인 후 설정에서 변경할 수 있습니다.
               </p>
+              <p className="text-xs text-on-surface-variant bg-surface-container-low rounded-lg px-3 py-2">
+                퇴사 처리 시 이름이 마스킹되어 원본이 저장되어 있지 않습니다. 이름을 다시 입력해주세요.
+              </p>
+              <div>
+                <label className="block text-xs font-bold text-on-surface-variant mb-1.5">이름</label>
+                <input
+                  type="text"
+                  value={rejoinName}
+                  onChange={(e) => setRejoinName(e.target.value)}
+                  placeholder="실명 입력"
+                  className="w-full px-3 py-2.5 border border-outline-variant rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition"
+                />
+              </div>
               <div>
                 <label className="block text-xs font-bold text-on-surface-variant mb-1.5">재입사일</label>
                 <input
@@ -342,7 +357,7 @@ export default function EmployeesPage() {
               </button>
               <button
                 onClick={handleConfirmReinstate}
-                disabled={saving || !rejoinDate}
+                disabled={saving || !rejoinDate || !rejoinName.trim()}
                 className="flex-1 py-2.5 bg-primary text-white rounded-xl text-sm font-bold hover:opacity-90 transition disabled:opacity-50"
               >
                 {saving ? "처리 중..." : "복직 처리"}

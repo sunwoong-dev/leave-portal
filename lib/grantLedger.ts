@@ -1,4 +1,4 @@
-import type { LeaveGrant } from "./types";
+import type { LeaveGrant, LeaveRequest, LeaveType } from "./types";
 
 /**
  * 부여(양수) 연차의 만료일 계산.
@@ -42,6 +42,47 @@ export function activeGrantBalance(grants: LeaveGrant[], userId: string, asOf: D
   return grants
     .filter((g) => g.userId === userId && g.days > 0 && !isGrantExpired(g, asOf) && effectiveRemaining(g) > 0)
     .reduce((sum, g) => sum + g.days, 0);
+}
+
+/** 만료 안 된 부여의 "아직 남은" 일수 합계 — grantCeilingTotal(액면가)과의 차이가 곧 부여 소진량 */
+export function grantRemainingTotal(grants: LeaveGrant[], userId: string, asOf: Date = new Date()): number {
+  return grants
+    .filter((g) => g.userId === userId && g.days > 0 && !isGrantExpired(g, asOf))
+    .reduce((sum, g) => sum + effectiveRemaining(g), 0);
+}
+
+const NO_DEDUCTION_TYPES: LeaveType[] = ["sick", "reservist"];
+
+function grantDeductionDays(req: LeaveRequest): number {
+  return (req.grantDeductions ?? []).reduce((sum, d) => sum + d.days, 0);
+}
+
+/**
+ * "사용 연차" 계산 — 정규 연차(totalLeave) 소진분과 부여(grant) 소진분을 서로 다른 기준으로 집계한다.
+ *
+ * 정규 소진분: 연차 연도 시작일(yearStart) 이후 신청분만 집계한다. totalLeave는 매 근속 갱신(입사
+ * 주년일)마다 리셋되므로, 그 이전 신청은 이미 지난 연도에 정산되어 이번 연도 잔여와 무관하다.
+ *
+ * 부여 소진분: 신청일이 아니라 각 부여 건의 remainingDays로 직접 판단한다. 부여는 부여일 기준 자체
+ * 만료 주기(1년)를 갖고 있어 근속 갱신일과 어긋날 수 있는데, 부여 소진 신청이 근속 갱신일보다
+ * "이전"이라 yearStart 필터에 걸리지 않더라도 이미 소진된 부여를 놓치면 안 되기 때문이다.
+ * (예: 근속 갱신 직전에 받은 부여 휴가를 갱신 전에 다 썼는데, 갱신 후 화면에는 여전히 안 쓴 것처럼
+ * 보이는 문제 — 부여의 remainingDays로 판단하면 이 시점차를 원천적으로 피할 수 있다.)
+ */
+export function calcUsedLeave(
+  requests: LeaveRequest[],
+  grants: LeaveGrant[],
+  userId: string,
+  yearStart: string,
+  asOf: Date = new Date(),
+): number {
+  const regularUsed = requests
+    .filter((r) => r.userId === userId && r.status === "approved" && !NO_DEDUCTION_TYPES.includes(r.type) && r.startDate >= yearStart)
+    .reduce((sum, r) => sum + (r.days - grantDeductionDays(r)), 0);
+
+  const grantUsed = grantCeilingTotal(grants, userId, asOf) - grantRemainingTotal(grants, userId, asOf);
+
+  return regularUsed + grantUsed;
 }
 
 export interface GrantConsumption {

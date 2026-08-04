@@ -8,10 +8,11 @@ import { isHoliday, getHolidayName } from "@/lib/holidays";
 import LeaveRequestModal from "@/components/LeaveRequestModal";
 import { db } from "@/lib/firebase";
 import { collection, getDocs } from "firebase/firestore";
-import { calcTotalLeave, daysUntilLeaveRenewal } from "@/lib/leaveCalc";
-import { grantCeilingTotal } from "@/lib/grantLedger";
+import { calcTotalLeave, currentLeaveYearStart, daysUntilLeaveRenewal } from "@/lib/leaveCalc";
+import { grantCeilingTotal, calcUsedLeave } from "@/lib/grantLedger";
+import { toLocalDateStr, todayLocalStr } from "@/lib/dateUtils";
 
-interface SimpleUser { id: string; name: string; totalLeave: number; }
+interface SimpleUser { id: string; name: string; totalLeave: number; joinDate: string; }
 const STATUS_STYLES = {
   approved: "bg-green-100 text-green-700",
   pending: "bg-yellow-100 text-yellow-700",
@@ -58,7 +59,7 @@ export default function DashboardPage() {
   if (!user) return null;
 
   const todayObj = new Date();
-  const todayStr = todayObj.toISOString().split("T")[0];
+  const todayStr = toLocalDateStr(todayObj);
 
   const [viewYear, setViewYear] = useState(todayObj.getFullYear());
   const [viewMonth, setViewMonth] = useState(todayObj.getMonth());
@@ -157,6 +158,7 @@ export default function DashboardPage() {
             id: d.id,
             name: data.name as string,
             totalLeave: joinDate ? calcTotalLeave(joinDate) : ((data.totalLeave as number) ?? 15),
+            joinDate,
           };
         });
       list.sort((a, b) => a.name.localeCompare(b.name, "ko"));
@@ -470,7 +472,7 @@ export default function DashboardPage() {
                     >
                       {grantEmployees.map((e) => {
                         const granted = grantCeilingTotal(state.leaveGrants, e.id);
-                        const used = state.leaveRequests.filter((r) => r.userId === e.id && r.status === "approved").reduce((s, r) => s + r.days, 0);
+                        const used = calcUsedLeave(state.leaveRequests, state.leaveGrants, e.id, currentLeaveYearStart(e.joinDate));
                         return <option key={e.id} value={e.id}>{e.name} (잔여 {e.totalLeave + granted - used}일)</option>;
                       })}
                       {grantEmployees.length === 0 && <option disabled>직원 없음</option>}
@@ -834,12 +836,12 @@ function LeaveDetailModal({ req, onClose, onEdit, onCancel, cancelConfirm, onCan
             </div>
           ) : (
             <div className="flex gap-2">
-              {req.status === "pending" && onEdit && req.endDate >= new Date().toISOString().split("T")[0] && (
+              {req.status === "pending" && onEdit && req.endDate >= todayLocalStr() && (
                 <button onClick={onEdit} className="flex-1 py-2.5 bg-primary text-white text-sm font-bold rounded-xl hover:opacity-90 transition flex items-center justify-center gap-1.5">
                   <span className="material-symbols-outlined text-base">edit</span>수정
                 </button>
               )}
-              {(req.status === "pending" || req.status === "approved") && onCancel && req.endDate >= new Date().toISOString().split("T")[0] && (
+              {(req.status === "pending" || req.status === "approved") && onCancel && req.endDate >= todayLocalStr() && (
                 <button onClick={onCancel} className="flex-1 py-2.5 border border-error text-error text-sm font-bold rounded-xl hover:bg-error/5 transition flex items-center justify-center gap-1.5">
                   <span className="material-symbols-outlined text-base">cancel</span>취소
                 </button>
