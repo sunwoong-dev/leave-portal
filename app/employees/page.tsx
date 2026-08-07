@@ -7,8 +7,8 @@ import { useStore, makeInitials } from "@/lib/store";
 import { maskName } from "@/lib/piiMask";
 import { db } from "@/lib/firebase";
 import { collection, getDocs } from "firebase/firestore";
-import { calcTotalLeave, currentLeaveYearStart, daysUntilLeaveRenewal } from "@/lib/leaveCalc";
-import { activeGrantBalance, grantCeilingTotal, calcUsedLeave } from "@/lib/grantLedger";
+import { calcTotalLeave, currentLeaveYearStart, daysUntilLeaveRenewal, round1 } from "@/lib/leaveCalc";
+import { grantRemainingTotal, calcUsedLeave } from "@/lib/grantLedger";
 import { todayLocalStr as todayStr } from "@/lib/dateUtils";
 
 interface EmpStat {
@@ -19,7 +19,6 @@ interface EmpStat {
   joinDate: string;
   totalLeave: number;
   grantedDays: number;
-  unusedGrantDays: number;
   usedDays: number;
   remaining: number;
   resignationDate?: string;
@@ -70,11 +69,10 @@ export default function EmployeesPage() {
 
   const empStats: EmpStat[] = useMemo(() => baseEmps
     .map((emp) => {
-      const granted = grantCeilingTotal(state.leaveGrants, emp.id);
-      const unusedGrant = activeGrantBalance(state.leaveGrants, emp.id);
+      const granted = grantRemainingTotal(state.leaveGrants, emp.id);
       const yearStart = currentLeaveYearStart(emp.joinDate);
-      const used = calcUsedLeave(state.leaveRequests, state.leaveGrants, emp.id, yearStart);
-      return { ...emp, grantedDays: granted, unusedGrantDays: unusedGrant, usedDays: used, remaining: emp.totalLeave + granted - used };
+      const used = calcUsedLeave(state.leaveRequests, emp.id, emp.joinDate, yearStart);
+      return { ...emp, grantedDays: granted, usedDays: used, remaining: round1(emp.totalLeave + granted - used) };
     })
     .sort((a, b) => a.name.localeCompare(b.name, "ko")),
   [baseEmps, state.leaveGrants, state.leaveRequests]);
@@ -85,8 +83,8 @@ export default function EmployeesPage() {
 
   if (!user || !user.isManager) return null;
 
-  const totalGrantedAll = activeEmps.reduce((s, e) => s + e.totalLeave + e.grantedDays, 0);
-  const totalUsedAll = activeEmps.reduce((s, e) => s + e.usedDays, 0);
+  const totalGrantedAll = round1(activeEmps.reduce((s, e) => s + e.totalLeave + e.grantedDays, 0));
+  const totalUsedAll = round1(activeEmps.reduce((s, e) => s + e.usedDays, 0));
 
   async function handleConfirmResign() {
     if (!resignTarget) return;
@@ -143,7 +141,7 @@ export default function EmployeesPage() {
               </div>
               <div className="text-center">
                 <p className="text-xs text-on-surface-variant">전체 잔여</p>
-                <p className="font-bold text-lg text-on-surface">{totalGrantedAll - totalUsedAll}일</p>
+                <p className="font-bold text-lg text-on-surface">{round1(totalGrantedAll - totalUsedAll)}일</p>
               </div>
             </div>
           )}
@@ -192,7 +190,7 @@ export default function EmployeesPage() {
                 </thead>
                 <tbody className="divide-y divide-outline-variant">
                   {visibleEmps.map((emp) => {
-                    const total = emp.totalLeave + emp.grantedDays;
+                    const total = round1(emp.totalLeave + emp.grantedDays);
                     const pct = Math.min(100, Math.round((emp.usedDays / Math.max(1, total)) * 100));
                     return (
                       <tr key={emp.id} className={`transition-colors ${activeTab === "resigned" ? "opacity-60" : "hover:bg-surface-container-low"}`}>
@@ -210,8 +208,8 @@ export default function EmployeesPage() {
                         </td>
                         <td className="px-6 py-4 text-center">
                           <p className="font-bold text-sm text-on-surface">{total}일</p>
-                          {emp.unusedGrantDays > 0 && (
-                            <p className="text-[10px] text-green-600">+{emp.unusedGrantDays}일 부여</p>
+                          {emp.grantedDays > 0 && (
+                            <p className="text-[10px] text-green-600">+{emp.grantedDays}일 부여</p>
                           )}
                         </td>
                         <td className="px-6 py-4 text-center">

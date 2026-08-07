@@ -6,10 +6,12 @@ import AppLayout from "@/components/AppLayout";
 import { LEAVE_TYPE_LABELS, STATUS_LABELS, LeaveRequest } from "@/lib/types";
 import { isHoliday, getHolidayName } from "@/lib/holidays";
 import LeaveRequestModal from "@/components/LeaveRequestModal";
+import InfoTooltip from "@/components/InfoTooltip";
 import { db } from "@/lib/firebase";
 import { collection, getDocs } from "firebase/firestore";
-import { calcTotalLeave, currentLeaveYearStart, daysUntilLeaveRenewal } from "@/lib/leaveCalc";
-import { grantCeilingTotal, calcUsedLeave } from "@/lib/grantLedger";
+import { calcTotalLeave, currentLeaveYearStart, daysUntilLeaveRenewal, round1 } from "@/lib/leaveCalc";
+import { grantRemainingTotal, calcUsedLeave } from "@/lib/grantLedger";
+import { explainTotalLeave, explainUsedLeave, explainRemaining } from "@/lib/leaveExplain";
 import { toLocalDateStr, todayLocalStr } from "@/lib/dateUtils";
 
 interface SimpleUser { id: string; name: string; totalLeave: number; joinDate: string; }
@@ -54,7 +56,7 @@ function getUserColor(userId: string, name?: string) {
 }
 
 export default function DashboardPage() {
-  const { state, usedLeave, grantedDays, unusedGrantDays, updateLeaveStatus, addGrant, deleteLeave, showNotification } = useStore();
+  const { state, usedLeave, grantedDays, updateLeaveStatus, addGrant, deleteLeave, showNotification } = useStore();
   const user = state.currentUser;
   if (!user) return null;
 
@@ -88,8 +90,8 @@ export default function DashboardPage() {
   const [allFilter, setAllFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
   const [calendarExpanded, setCalendarExpanded] = useState(false);
 
-  const totalWithGrants = user.totalLeave + grantedDays;
-  const remaining = totalWithGrants - usedLeave;
+  const totalWithGrants = round1(user.totalLeave + grantedDays);
+  const remaining = round1(totalWithGrants - usedLeave);
   const usedPct = Math.min(100, Math.round((usedLeave / Math.max(1, totalWithGrants)) * 100));
 
   // Team calendar map — 관리자/유저 모두 전체 팀 휴가 표시
@@ -471,9 +473,9 @@ export default function DashboardPage() {
                       className="w-full border border-outline-variant rounded-xl text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30"
                     >
                       {grantEmployees.map((e) => {
-                        const granted = grantCeilingTotal(state.leaveGrants, e.id);
-                        const used = calcUsedLeave(state.leaveRequests, state.leaveGrants, e.id, currentLeaveYearStart(e.joinDate));
-                        return <option key={e.id} value={e.id}>{e.name} (잔여 {e.totalLeave + granted - used}일)</option>;
+                        const granted = grantRemainingTotal(state.leaveGrants, e.id);
+                        const used = calcUsedLeave(state.leaveRequests, e.id, e.joinDate, currentLeaveYearStart(e.joinDate));
+                        return <option key={e.id} value={e.id}>{e.name} (잔여 {round1(e.totalLeave + granted - used)}일)</option>;
                       })}
                       {grantEmployees.length === 0 && <option disabled>직원 없음</option>}
                     </select>
@@ -569,9 +571,9 @@ export default function DashboardPage() {
               <span className="material-symbols-outlined text-primary text-lg">event_available</span>
             </div>
             <div className="min-w-0">
-              <p className="text-[11px] text-on-surface-variant font-semibold leading-tight">총 연차</p>
+              <p className="text-[11px] text-on-surface-variant font-semibold leading-tight flex items-center">총 연차<InfoTooltip text={explainTotalLeave(user.joinDate ?? "", state.leaveGrants, user.id)} /></p>
               <p className="text-2xl font-bold text-primary leading-tight">{totalWithGrants}<span className="text-xs font-medium text-on-surface-variant ml-0.5">일</span></p>
-              {unusedGrantDays > 0 && <p className="text-[10px] text-green-600 leading-tight">+{unusedGrantDays}일 부여</p>}
+              {grantedDays > 0 && <p className="text-[10px] text-green-600 leading-tight">+{grantedDays}일 부여</p>}
             </div>
           </div>
           <div className="bg-white flex items-center gap-3 p-3 rounded-xl border border-outline-variant shadow-sm">
@@ -579,7 +581,7 @@ export default function DashboardPage() {
               <span className="material-symbols-outlined text-secondary text-lg">pending_actions</span>
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-[11px] text-on-surface-variant font-semibold leading-tight">사용 휴가</p>
+              <p className="text-[11px] text-on-surface-variant font-semibold leading-tight flex items-center">사용 휴가<InfoTooltip text={explainUsedLeave(usedLeave)} /></p>
               <p className="text-2xl font-bold text-secondary leading-tight">{usedLeave}<span className="text-xs font-medium text-on-surface-variant ml-0.5">일</span></p>
               <div className="mt-1 h-1 bg-surface-container rounded-full overflow-hidden">
                 <div className="h-full bg-secondary rounded-full transition-all" style={{ width: `${usedPct}%` }} />
@@ -591,7 +593,7 @@ export default function DashboardPage() {
               <span className="material-symbols-outlined text-on-tertiary-fixed-variant text-lg">schedule</span>
             </div>
             <div className="min-w-0">
-              <p className="text-[11px] text-on-surface-variant font-semibold leading-tight">남은 휴가</p>
+              <p className="text-[11px] text-on-surface-variant font-semibold leading-tight flex items-center">남은 휴가<InfoTooltip text={explainRemaining()} /></p>
               <p className={`text-2xl font-bold leading-tight ${remaining <= 3 ? "text-error" : "text-on-tertiary-fixed-variant"}`}>{remaining}<span className="text-xs font-medium text-on-surface-variant ml-0.5">일</span></p>
               {(() => {
                 const d = daysUntilLeaveRenewal(user.joinDate ?? "");

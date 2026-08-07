@@ -8,6 +8,7 @@ import { LEAVE_TYPE_LABELS } from "@/lib/types";
 import { db } from "@/lib/firebase";
 import { collection, getDocs } from "firebase/firestore";
 import { calcTotalLeave } from "@/lib/leaveCalc";
+import { calcRemainingLeave } from "@/lib/grantLedger";
 
 interface SimpleUser { id: string; name: string; joinDate: string; totalLeave: number; isManager: boolean; }
 
@@ -265,9 +266,7 @@ export default function ApprovalPage() {
                     >
                       {employees.map((e) => (
                         <option key={e.id} value={e.id}>{e.name} (잔여 {
-                          e.totalLeave
-                          + state.leaveGrants.filter((g) => g.userId === e.id).reduce((s, g) => s + g.days, 0)
-                          - state.leaveRequests.filter((r) => r.userId === e.id && r.status === "approved").reduce((s, r) => s + r.days, 0)
+                          calcRemainingLeave(state.leaveRequests, state.leaveGrants, e.id, e.joinDate)
                         }일)</option>
                       ))}
                       {employees.length === 0 && <option disabled>직원 없음</option>}

@@ -1,4 +1,5 @@
 import type { LeaveGrant, LeaveRequest, LeaveType } from "./types";
+import { calcTotalLeave, currentLeaveYearStart, getCompletedMonths, round1 } from "./leaveCalc";
 
 /**
  * 부여(양수) 연차의 만료일 계산.
@@ -23,28 +24,10 @@ function effectiveRemaining(grant: LeaveGrant): number {
 }
 
 /**
- * "총 연차"/"잔여" 산술에 쓰는 값 — 만료 안 된 부여의 액면가 합계.
- * 사용 여부는 반영하지 않는다(사용분은 이미 usedLeave/leaveBalance 쪽에서 차감되므로,
- * 여기서 또 빼면 이중차감이 된다). 오직 "만료로 소멸"됐을 때만 줄어든다.
+ * "총 연차"/"잔여"/"+N일 부여" 뱃지에 공통으로 쓰는 값 — 만료 안 된 부여의 "지금 남은" 일수 합계.
+ * 월차와 똑같이 다룬다: 다 쓴 부여는 총/사용/잔여 어디에도 흔적을 남기지 않고 그냥 사라진다
+ * (사용분은 calcUsedLeave에 잡히지 않음 — 총에서도 안 잡히니 서로 상쇄해서 0으로 떨어짐).
  */
-export function grantCeilingTotal(grants: LeaveGrant[], userId: string, asOf: Date = new Date()): number {
-  return grants
-    .filter((g) => g.userId === userId && g.days > 0 && !isGrantExpired(g, asOf))
-    .reduce((sum, g) => sum + g.days, 0);
-}
-
-/**
- * "+N일 부여" 뱃지 노출 여부/문구 전용 — 산술(총 연차·잔여)에는 절대 쓰지 않는다.
- * 일부만 소진돼도 문구는 원래 부여량 그대로 유지되고, 완전히 소진(잔여 0)되거나
- * 만료됐을 때만 사라진다(부분 소진 상태를 어중간하게 보여주지 않음).
- */
-export function activeGrantBalance(grants: LeaveGrant[], userId: string, asOf: Date = new Date()): number {
-  return grants
-    .filter((g) => g.userId === userId && g.days > 0 && !isGrantExpired(g, asOf) && effectiveRemaining(g) > 0)
-    .reduce((sum, g) => sum + g.days, 0);
-}
-
-/** 만료 안 된 부여의 "아직 남은" 일수 합계 — grantCeilingTotal(액면가)과의 차이가 곧 부여 소진량 */
 export function grantRemainingTotal(grants: LeaveGrant[], userId: string, asOf: Date = new Date()): number {
   return grants
     .filter((g) => g.userId === userId && g.days > 0 && !isGrantExpired(g, asOf))
@@ -58,31 +41,73 @@ function grantDeductionDays(req: LeaveRequest): number {
 }
 
 /**
- * "사용 연차" 계산 — 정규 연차(totalLeave) 소진분과 부여(grant) 소진분을 서로 다른 기준으로 집계한다.
+ * 부여를 제외한 나머지(=netDays, 부여로 못 채운 분)를 월차 → 연차 순으로 가상 배분한다.
+ * 전체 우선순위는 월차 > 부여 > 연차 — 부여 소비 계획(applyLeaveDeduction)이 이 함수로 먼저
+ * "월차로 감당 가능한 만큼"을 뺀 나머지에 대해서만 부여를 소비하도록 짜여 있어, 여기 들어오는
+ * netDays는 이미 그 순서가 반영된 값이다. 월차 풀은 신청 시점의 근속 개월수로 그때그때의 캡
+ * (최대 11)을 계산하고, 근속 1년 도달 이후 신청은 캡이 0(월차 소멸)이라 자동으로 연차 쪽에
+ * 잡힌다 — 별도 "소멸 처리" 없이 자연히 성립.
+ */
+export function simulateBaseConsumption(
+  requests: LeaveRequest[],
+  userId: string,
+  joinDate: string,
+  yearStart: string,
+): { monthlyUsed: number; annualUsedThisYear: number } {
+  const sorted = requests
+    .filter((r) => r.userId === userId && r.status === "approved" && !NO_DEDUCTION_TYPES.includes(r.type))
+    .sort((a, b) => a.startDate.localeCompare(b.startDate));
+
+  let monthlyUsed = 0;
+  let annualUsedThisYear = 0;
+  for (const r of sorted) {
+    const netDays = r.days - grantDeductionDays(r);
+    if (netDays <= 0) continue;
+    const tenureMonths = getCompletedMonths(joinDate, new Date(r.startDate));
+    const monthlyCap = tenureMonths < 12 ? Math.min(tenureMonths, 11) : 0;
+    const availableMonthly = Math.max(0, monthlyCap - monthlyUsed);
+    const fromMonthly = Math.min(availableMonthly, netDays);
+    monthlyUsed += fromMonthly;
+    const remainder = netDays - fromMonthly;
+    if (r.startDate >= yearStart) annualUsedThisYear += remainder;
+  }
+  return { monthlyUsed, annualUsedThisYear };
+}
+
+/**
+ * "사용 연차" 계산 — 월차/연차 소진분만 집계한다(전체 우선순위: 월차 > 부여 > 연차).
+ * 부여 소진분은 여기 안 잡힌다 — 부여는 월차처럼 "다 쓰면 총에서도 같이 사라지는" 취급이라,
+ * 총(grantRemainingTotal)에서 이미 안 보이는 이상 사용량에도 남길 필요가 없다(안 그러면
+ * 총 0인데 사용만 남아 "마이너스처럼" 보이는 이상한 그림이 됨).
  *
- * 정규 소진분: 연차 연도 시작일(yearStart) 이후 신청분만 집계한다. totalLeave는 매 근속 갱신(입사
- * 주년일)마다 리셋되므로, 그 이전 신청은 이미 지난 연도에 정산되어 이번 연도 잔여와 무관하다.
- *
- * 부여 소진분: 신청일이 아니라 각 부여 건의 remainingDays로 직접 판단한다. 부여는 부여일 기준 자체
- * 만료 주기(1년)를 갖고 있어 근속 갱신일과 어긋날 수 있는데, 부여 소진 신청이 근속 갱신일보다
- * "이전"이라 yearStart 필터에 걸리지 않더라도 이미 소진된 부여를 놓치면 안 되기 때문이다.
- * (예: 근속 갱신 직전에 받은 부여 휴가를 갱신 전에 다 썼는데, 갱신 후 화면에는 여전히 안 쓴 것처럼
- * 보이는 문제 — 부여의 remainingDays로 판단하면 이 시점차를 원천적으로 피할 수 있다.)
+ * 월차 소진분은 월차가 아직 살아있는 동안(근속 1년 미만)만 포함하고 소멸 후에는 제외한다 —
+ * 이미 쓴 월차가 소멸 시점에 연차에서 또 깎이는 이중 차감을 막기 위함(부여와 동일한 원리).
  */
 export function calcUsedLeave(
   requests: LeaveRequest[],
-  grants: LeaveGrant[],
   userId: string,
+  joinDate: string,
   yearStart: string,
   asOf: Date = new Date(),
 ): number {
-  const regularUsed = requests
-    .filter((r) => r.userId === userId && r.status === "approved" && !NO_DEDUCTION_TYPES.includes(r.type) && r.startDate >= yearStart)
-    .reduce((sum, r) => sum + (r.days - grantDeductionDays(r)), 0);
+  const { monthlyUsed, annualUsedThisYear } = simulateBaseConsumption(requests, userId, joinDate, yearStart);
+  const monthlyExpired = getCompletedMonths(joinDate, asOf) >= 12;
+  return (monthlyExpired ? 0 : monthlyUsed) + annualUsedThisYear;
+}
 
-  const grantUsed = grantCeilingTotal(grants, userId, asOf) - grantRemainingTotal(grants, userId, asOf);
-
-  return regularUsed + grantUsed;
+/** "총 연차(월차+연차) + 부여 잔여 - 월차/연차 사용"을 한 번에 계산 — leaveBalance에 그대로 SET하는 값. */
+export function calcRemainingLeave(
+  requests: LeaveRequest[],
+  grants: LeaveGrant[],
+  userId: string,
+  joinDate: string,
+  asOf: Date = new Date(),
+): number {
+  const totalLeave = calcTotalLeave(joinDate, asOf);
+  const yearStart = currentLeaveYearStart(joinDate, asOf);
+  const used = calcUsedLeave(requests, userId, joinDate, yearStart, asOf);
+  const granted = grantRemainingTotal(grants, userId, asOf);
+  return round1(totalLeave + granted - used);
 }
 
 export interface GrantConsumption {
@@ -119,7 +144,3 @@ export function planGrantConsumption(
   return plan;
 }
 
-/** 만료됐는데 아직 정리 안 된(remainingDays > 0) 부여 목록 — 로그인 시 leaveBalance 회수용 */
-export function findExpiredUnclaimedGrants(grants: LeaveGrant[], userId: string, asOf: Date = new Date()): LeaveGrant[] {
-  return grants.filter((g) => g.userId === userId && g.days > 0 && effectiveRemaining(g) > 0 && isGrantExpired(g, asOf));
-}

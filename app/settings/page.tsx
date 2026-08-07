@@ -6,6 +6,9 @@ import { useStore } from "@/lib/store";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, query, where, updateDoc, doc, deleteField, type DocumentReference } from "firebase/firestore";
 import { PASSWORD_MIN_LENGTH, ALLOWED_SPECIAL_CHARS, checkPasswordPolicy } from "@/lib/passwordPolicy";
+import { round1 } from "@/lib/leaveCalc";
+import { explainTotalLeave, explainUsedLeave, explainRemaining } from "@/lib/leaveExplain";
+import InfoTooltip from "@/components/InfoTooltip";
 
 async function hashPassword(password: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(password));
@@ -162,19 +165,19 @@ export default function SettingsPage() {
           <div className="p-6">
             <div className="grid grid-cols-3 gap-4">
               {[
-                { label: "총 연차", value: user.totalLeave + grantedDays, unit: "일", color: "text-primary" },
-                { label: "사용 연차", value: usedLeave, unit: "일", color: "text-secondary" },
-                { label: "잔여 연차", value: user.leaveBalance, unit: "일", color: user.leaveBalance <= 3 ? "text-error" : "text-on-tertiary-fixed-variant" },
+                { label: "총 연차", value: round1(user.totalLeave + grantedDays), unit: "일", color: "text-primary", tooltip: explainTotalLeave(user.joinDate ?? "", state.leaveGrants, user.id) },
+                { label: "사용 연차", value: usedLeave, unit: "일", color: "text-secondary", tooltip: explainUsedLeave(usedLeave) },
+                { label: "잔여 연차", value: user.leaveBalance, unit: "일", color: user.leaveBalance <= 3 ? "text-error" : "text-on-tertiary-fixed-variant", tooltip: explainRemaining() },
               ].map((stat) => (
                 <div key={stat.label} className="text-center p-4 bg-surface-container-low rounded-xl">
                   <p className={`text-3xl font-bold ${stat.color}`}>{stat.value}</p>
-                  <p className="text-xs text-on-surface-variant mt-1">{stat.label} ({stat.unit})</p>
+                  <p className="text-xs text-on-surface-variant mt-1 flex items-center justify-center">{stat.label} ({stat.unit})<InfoTooltip text={stat.tooltip} /></p>
                 </div>
               ))}
             </div>
             {grantedDays > 0 && (
               <p className="text-xs text-green-600 mt-3 font-medium">
-                기본 {user.totalLeave}일 + 추가 부여 {grantedDays}일 = 총 {user.totalLeave + grantedDays}일
+                기본 {user.totalLeave}일 + 추가 부여 {grantedDays}일 = 총 {round1(user.totalLeave + grantedDays)}일
               </p>
             )}
             <div className="mt-3">
