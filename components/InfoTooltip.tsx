@@ -11,7 +11,7 @@ export default function InfoTooltip({ text }: { text: string }) {
       </span>
       <span
         role="tooltip"
-        className="pointer-events-none absolute z-50 hidden group-hover:block top-full left-0 mt-2 w-72 max-w-[min(18rem,90vw)] p-3 rounded-lg bg-gray-900 text-white text-[11px] leading-relaxed shadow-xl whitespace-pre-line text-left font-normal"
+        className="pointer-events-none absolute z-50 hidden group-hover:block top-full left-0 mt-2 w-72 max-w-[min(18rem,90vw)] p-3 rounded-lg bg-gray-900 text-white text-[11px] leading-relaxed shadow-xl whitespace-pre-line break-keep text-left font-normal"
       >
         <span className="absolute bottom-full left-2 border-4 border-transparent border-b-gray-900" />
         {text}
