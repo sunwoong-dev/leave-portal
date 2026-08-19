@@ -394,9 +394,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const joinDate = await fetchJoinDate(userId);
     const priorRequests = state.leaveRequests.filter((r) => r.userId === userId && r.startDate < startDate);
     const { monthlyUsed } = simulateBaseConsumption(priorRequests, userId, joinDate, "");
-    const tenureMonths = getCompletedMonths(joinDate, new Date(startDate));
-    const monthlyCap = tenureMonths < 12 ? Math.min(tenureMonths, 11) : 0;
-    const monthlyAvailable = Math.max(0, monthlyCap - monthlyUsed);
+    const tenureMonthsAtReq = getCompletedMonths(joinDate, new Date(startDate));
+    const monthlyCeiling = Math.min(getCompletedMonths(joinDate), 11); // 오늘 기준 쌓인 만큼(선사용 허용)
+    const monthlyAvailable = tenureMonthsAtReq < 12 ? Math.max(0, monthlyCeiling - monthlyUsed) : 0;
     const daysForGrant = Math.max(0, days - monthlyAvailable);
 
     const plan = planGrantConsumption(state.leaveGrants, userId, daysForGrant);

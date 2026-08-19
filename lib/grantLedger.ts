@@ -44,19 +44,27 @@ function grantDeductionDays(req: LeaveRequest): number {
  * 부여를 제외한 나머지(=netDays, 부여로 못 채운 분)를 월차 → 연차 순으로 가상 배분한다.
  * 전체 우선순위는 월차 > 부여 > 연차 — 부여 소비 계획(applyLeaveDeduction)이 이 함수로 먼저
  * "월차로 감당 가능한 만큼"을 뺀 나머지에 대해서만 부여를 소비하도록 짜여 있어, 여기 들어오는
- * netDays는 이미 그 순서가 반영된 값이다. 월차 풀은 신청 시점의 근속 개월수로 그때그때의 캡
- * (최대 11)을 계산하고, 근속 1년 도달 이후 신청은 캡이 0(월차 소멸)이라 자동으로 연차 쪽에
- * 잡힌다 — 별도 "소멸 처리" 없이 자연히 성립.
+ * netDays는 이미 그 순서가 반영된 값이다.
+ *
+ * 월차 풀의 상한(monthlyCeiling)은 "그 신청 날짜 기준" 개월수가 아니라 asOf(보통 오늘, 이미
+ * 소멸됐으면 소멸 시점) 기준으로 쌓인 만큼을 쓴다 — 입사 첫 달이 채워지기 전에 회사 재량으로
+ * 다음 달 치를 미리 당겨 쓰는 경우가 실제로 있어서, 신청 시점 캡으로 막아버리면 그 사용분이
+ * 월차에서도 연차에서도 안 잡히고 증발해버린다(이미 쓴 휴가가 잔여 계산에서 통째로 빠지는 버그).
+ * 대신 "이 신청이 근속 1년(월차 소멸) 이전인지"는 여전히 신청 날짜 기준으로 판단해서, 소멸 이후
+ * 신청은 그대로 연차 쪽으로 넘어간다.
  */
 export function simulateBaseConsumption(
   requests: LeaveRequest[],
   userId: string,
   joinDate: string,
   yearStart: string,
+  asOf: Date = new Date(),
 ): { monthlyUsed: number; annualUsedThisYear: number } {
   const sorted = requests
     .filter((r) => r.userId === userId && r.status === "approved" && !NO_DEDUCTION_TYPES.includes(r.type))
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
+
+  const monthlyCeiling = Math.min(getCompletedMonths(joinDate, asOf), 11);
 
   let monthlyUsed = 0;
   let annualUsedThisYear = 0;
@@ -64,8 +72,8 @@ export function simulateBaseConsumption(
     const netDays = r.days - grantDeductionDays(r);
     if (netDays <= 0) continue;
     const tenureMonths = getCompletedMonths(joinDate, new Date(r.startDate));
-    const monthlyCap = tenureMonths < 12 ? Math.min(tenureMonths, 11) : 0;
-    const availableMonthly = Math.max(0, monthlyCap - monthlyUsed);
+    const stillMonthlyEligible = tenureMonths < 12;
+    const availableMonthly = stillMonthlyEligible ? Math.max(0, monthlyCeiling - monthlyUsed) : 0;
     const fromMonthly = Math.min(availableMonthly, netDays);
     monthlyUsed += fromMonthly;
     const remainder = netDays - fromMonthly;
@@ -90,7 +98,7 @@ export function calcUsedLeave(
   yearStart: string,
   asOf: Date = new Date(),
 ): number {
-  const { monthlyUsed, annualUsedThisYear } = simulateBaseConsumption(requests, userId, joinDate, yearStart);
+  const { monthlyUsed, annualUsedThisYear } = simulateBaseConsumption(requests, userId, joinDate, yearStart, asOf);
   const monthlyExpired = getCompletedMonths(joinDate, asOf) >= 12;
   return (monthlyExpired ? 0 : monthlyUsed) + annualUsedThisYear;
 }
