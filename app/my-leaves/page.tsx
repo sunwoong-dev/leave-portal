@@ -9,6 +9,7 @@ import { collection, getDocs } from "firebase/firestore";
 import { calcTotalLeave } from "@/lib/leaveCalc";
 import { LEAVE_TYPE_LABELS, STATUS_LABELS, LeaveStatus } from "@/lib/types";
 import { generateLeavePDF } from "@/lib/pdfGenerator";
+import { toLocalDateStr } from "@/lib/dateUtils";
 
 const STATUS_STYLES: Record<LeaveStatus, string> = {
   approved: "bg-green-100 text-green-700",
@@ -375,6 +376,8 @@ export default function MyLeavesPage() {
               <table className="w-full text-left min-w-[640px]">
                 <thead className="sticky top-0 z-10">
                   <tr className="bg-surface-bright text-xs font-bold text-on-surface-variant uppercase tracking-wider">
+                    <th className="pl-5 pr-2 py-3 border-b border-outline-variant w-8"></th>
+                    <th className="px-5 py-3 border-b border-outline-variant">신청일</th>
                     <th className="px-5 py-3 border-b border-outline-variant">이름</th>
                     <th className="px-5 py-3 border-b border-outline-variant">휴가 종류</th>
                     <th className="px-5 py-3 border-b border-outline-variant">기간</th>
@@ -387,7 +390,7 @@ export default function MyLeavesPage() {
                 <tbody className="divide-y divide-outline-variant border-b border-outline-variant">
                   {paginated.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-16 text-center text-on-surface-variant text-sm">
+                      <td colSpan={9} className="py-16 text-center text-on-surface-variant text-sm">
                         <span className="material-symbols-outlined text-4xl block mb-2 opacity-30">search_off</span>
                         검색 결과가 없습니다.
                       </td>
@@ -400,13 +403,15 @@ export default function MyLeavesPage() {
                         onClick={() => toggleSelect(r.id)}
                         className={`cursor-pointer transition-colors ${isSelected ? "bg-primary/10" : "hover:bg-primary/5"}`}
                       >
-                        <td className="px-5 py-3.5 text-sm font-semibold text-on-surface">{r.userName}</td>
-                        <td className="px-5 py-3.5 text-sm font-medium">
-                          <div className="flex items-center gap-2">
-                            <span className={`w-3.5 h-3.5 rounded-full border-2 flex-shrink-0 transition-colors ${isSelected ? "border-primary bg-primary" : "border-outline-variant"}`} />
-                            {LEAVE_TYPE_LABELS[r.type]}
-                          </div>
+                        <td className="pl-5 pr-2 py-3.5" onClick={(e) => e.stopPropagation()}>
+                          <span
+                            onClick={() => toggleSelect(r.id)}
+                            className={`block w-3.5 h-3.5 rounded-full border-2 flex-shrink-0 cursor-pointer transition-colors ${isSelected ? "border-primary bg-primary" : "border-outline-variant"}`}
+                          />
                         </td>
+                        <td className="px-5 py-3.5 text-sm font-bold text-on-surface-variant">{toLocalDateStr(new Date(r.createdAt))}</td>
+                        <td className="px-5 py-3.5 text-sm font-semibold text-on-surface">{r.userName}</td>
+                        <td className="px-5 py-3.5 text-sm font-medium">{LEAVE_TYPE_LABELS[r.type]}</td>
                         <td className="px-5 py-3.5 text-sm text-on-surface-variant">{r.startDate} ~ {r.endDate}</td>
                         <td className="px-5 py-3.5 text-sm text-center font-bold">{r.days}</td>
                         <td className="px-5 py-3.5 text-sm text-on-surface-variant max-w-xs truncate">{r.reason}</td>

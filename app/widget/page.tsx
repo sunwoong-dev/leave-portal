@@ -89,6 +89,9 @@ export default function WidgetPage() {
 
   const firstDow = new Date(viewYear, viewMonth, 1).getDay();
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const prevMonthDays = new Date(viewYear, viewMonth, 0).getDate();
+  const trailingDow = (firstDow + daysInMonth) % 7;
+  const trailingCount = trailingDow === 0 ? 0 : 7 - trailingDow;
 
   function prevMonth() {
     if (viewMonth === 0) { setViewYear((y) => y - 1); setViewMonth(11); }
@@ -143,7 +146,11 @@ export default function WidgetPage() {
 
       {/* 날짜 그리드 */}
       <div className="grid grid-cols-7 px-2 flex-1">
-        {Array.from({ length: firstDow }).map((_, i) => <div key={`e-${i}`} />)}
+        {Array.from({ length: firstDow }).map((_, i) => (
+          <div key={`prev-${i}`} className="flex flex-col items-center py-1">
+            <span className="text-xs font-medium w-6 h-6 flex items-center justify-center text-gray-300">{prevMonthDays - firstDow + 1 + i}</span>
+          </div>
+        ))}
         {Array.from({ length: daysInMonth }).map((_, i) => {
           const day = i + 1;
           const ds = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -179,6 +186,11 @@ export default function WidgetPage() {
             </div>
           );
         })}
+        {Array.from({ length: trailingCount }).map((_, i) => (
+          <div key={`next-${i}`} className="flex flex-col items-center py-1">
+            <span className="text-xs font-medium w-6 h-6 flex items-center justify-center text-gray-300">{i + 1}</span>
+          </div>
+        ))}
       </div>
 
       {/* 범례 */}

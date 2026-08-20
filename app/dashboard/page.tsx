@@ -121,6 +121,9 @@ export default function DashboardPage() {
 
   const firstDow = new Date(viewYear, viewMonth, 1).getDay();
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const prevMonthDays = new Date(viewYear, viewMonth, 0).getDate();
+  const trailingDow = (firstDow + daysInMonth) % 7;
+  const trailingCount = trailingDow === 0 ? 0 : 7 - trailingDow;
 
   function prevMonth() {
     if (viewMonth === 0) { setViewYear((y) => y - 1); setViewMonth(11); }
@@ -268,7 +271,11 @@ export default function DashboardPage() {
             ))}
           </div>
           <div className="flex-1 grid grid-cols-7 gap-0.5 auto-rows-fr">
-            {Array.from({ length: firstDow }).map((_, i) => <div key={`e-${i}`} />)}
+            {Array.from({ length: firstDow }).map((_, i) => (
+              <div key={`prev-${i}`} className="min-h-16 p-1">
+                <span className="text-xs font-medium leading-none block mb-0.5 text-on-surface-variant/30">{prevMonthDays - firstDow + 1 + i}</span>
+              </div>
+            ))}
             {Array.from({ length: daysInMonth }).map((_, i) => {
               const day = i + 1;
               const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -333,6 +340,11 @@ export default function DashboardPage() {
                 </button>
               );
             })}
+            {Array.from({ length: trailingCount }).map((_, i) => (
+              <div key={`next-${i}`} className="min-h-16 p-1">
+                <span className="text-xs font-medium leading-none block mb-0.5 text-on-surface-variant/30">{i + 1}</span>
+              </div>
+            ))}
           </div>
           <div className="flex-shrink-0 flex flex-wrap gap-x-3 gap-y-1 mt-2 text-[11px] text-on-surface-variant">
             <div className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-indigo-100 inline-block" />승인됨</div>
