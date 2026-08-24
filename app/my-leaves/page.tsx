@@ -7,7 +7,7 @@ import { useStore } from "@/lib/store";
 import { db } from "@/lib/firebase";
 import { collection, getDocs } from "firebase/firestore";
 import { calcTotalLeave } from "@/lib/leaveCalc";
-import { LEAVE_TYPE_LABELS, STATUS_LABELS, LeaveStatus } from "@/lib/types";
+import { LEAVE_TYPE_LABELS, STATUS_LABELS, LeaveStatus, LeaveRequest } from "@/lib/types";
 import { generateLeavePDF } from "@/lib/pdfGenerator";
 import { toLocalDateStr } from "@/lib/dateUtils";
 
@@ -37,6 +37,9 @@ export default function MyLeavesPage() {
   const [allUsersTotalLeave, setAllUsersTotalLeave] = useState(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<LeaveRequest | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelSaving, setCancelSaving] = useState(false);
 
   function toggleSelect(id: string) {
     setSelectedIds((prev) => {
@@ -150,10 +153,17 @@ export default function MyLeavesPage() {
   const pendingCount = state.leaveRequests.filter((r) => r.status === "pending").length;
   const rejectedCount = state.leaveRequests.filter((r) => r.status === "rejected").length;
 
-  async function handleDelete(id: string) {
-    if (confirm("해당 휴가 신청을 취소하시겠습니까?")) {
-      await deleteLeave(id);
+  async function handleConfirmCancel() {
+    if (!cancelTarget) return;
+    if (!cancelReason.trim()) { showNotification("취소 사유를 입력해주세요.", "error"); return; }
+    setCancelSaving(true);
+    try {
+      await deleteLeave(cancelTarget.id, cancelReason);
       showNotification("휴가 신청이 취소되었습니다.", "success");
+      setCancelTarget(null);
+      setCancelReason("");
+    } finally {
+      setCancelSaving(false);
     }
   }
 
@@ -420,7 +430,7 @@ export default function MyLeavesPage() {
                         </td>
                         <td className="px-5 py-3.5 text-right" onClick={(e) => e.stopPropagation()}>
                           {r.status === "pending" ? (
-                            <button onClick={() => handleDelete(r.id)} className="text-xs text-error hover:underline font-medium">취소</button>
+                            <button onClick={() => { setCancelTarget(r); setCancelReason(""); }} className="text-xs text-error hover:underline font-medium">취소</button>
                           ) : (
                             <span className="text-xs text-on-surface-variant">처리완료</span>
                           )}
@@ -451,6 +461,52 @@ export default function MyLeavesPage() {
         )}
       </div>
 
+      {/* 신청 취소 확인 모달 */}
+      {cancelTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+            <div className="px-6 py-5 border-b border-outline-variant">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-error-container flex items-center justify-center flex-shrink-0">
+                  <span className="material-symbols-outlined text-error text-xl">cancel</span>
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-on-surface">휴가 신청 취소</h3>
+                  <p className="text-xs text-on-surface-variant mt-0.5">{cancelTarget.userName}님의 {cancelTarget.startDate} ~ {cancelTarget.endDate} 신청을 취소합니다.</p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-on-surface-variant mb-1.5">취소 사유</label>
+                <textarea
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value)}
+                  placeholder="취소 사유를 입력해주세요 (필수)"
+                  rows={3}
+                  className="w-full px-3 py-2.5 border border-outline-variant rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-error/30 focus:border-error transition resize-none"
+                />
+              </div>
+            </div>
+            <div className="px-6 pb-5 flex gap-3">
+              <button
+                onClick={() => { setCancelTarget(null); setCancelReason(""); }}
+                disabled={cancelSaving}
+                className="flex-1 py-2.5 border border-outline-variant rounded-xl text-sm font-bold text-on-surface-variant hover:bg-surface-container-low transition disabled:opacity-50"
+              >
+                돌아가기
+              </button>
+              <button
+                onClick={handleConfirmCancel}
+                disabled={cancelSaving || !cancelReason.trim()}
+                className="flex-1 py-2.5 bg-error text-white rounded-xl text-sm font-bold hover:opacity-90 transition disabled:opacity-50"
+              >
+                {cancelSaving ? "처리 중..." : "취소 확정"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }

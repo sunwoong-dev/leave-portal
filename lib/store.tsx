@@ -22,6 +22,7 @@ const NO_DEDUCTION_TYPES = ["sick", "reservist"];
 const NOTIF_COL = "leave_portal_notifications";
 const NOTIF_LOGS_COL = "leave_portal_notification_logs";
 const HOLIDAYS_COL = "leave_portal_holidays";
+const CANCELLATIONS_COL = "leave_portal_cancellations";
 
 interface State {
   currentUser: User | null;
@@ -103,7 +104,7 @@ interface StoreContextType {
   updateLeaveRequest: (id: string, updates: Partial<Omit<LeaveRequest, "id" | "createdAt">>) => Promise<void>;
   addGrant: (userId: string, userName: string, days: number, reason: string) => Promise<void>;
   updateLeaveStatus: (id: string, status: "approved" | "rejected", note?: string) => Promise<void>;
-  deleteLeave: (id: string) => Promise<void>;
+  deleteLeave: (id: string, reason: string) => Promise<void>;
   updateSignature: (imageDataUrl: string | null) => Promise<void>;
   setResignation: (userId: string, date: string | null) => Promise<void>;
   reinstateEmployee: (userId: string, newJoinDate: string, newName: string) => Promise<void>;
@@ -520,10 +521,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  async function deleteLeave(id: string) {
+  // 취소된 신청 문서는 완전히 삭제되어 이력에 남지 않으므로, 지우기 전에 별도 컬렉션에
+  // 감사 로그를 남겨 "누가 언제 왜 취소했는지" 추적 가능하게 한다.
+  async function deleteLeave(id: string, reason: string) {
     // 승인된 휴가 삭제 시 잔여 연차 복원 (병가/예비군은 차감된 적이 없으므로 복원 제외)
     // 문서를 먼저 지운 뒤에 재계산해야 삭제된 신청이 다시 집계되지 않는다.
     const req = state.leaveRequests.find((r) => r.id === id);
+    if (req) {
+      await addDoc(collection(db, CANCELLATIONS_COL), {
+        requestId: id,
+        userId: req.userId,
+        userName: req.userName,
+        type: req.type,
+        startDate: req.startDate,
+        endDate: req.endDate,
+        days: req.days,
+        statusAtCancel: req.status,
+        reason,
+        cancelledBy: state.currentUser?.name ?? "관리자",
+        cancelledById: state.currentUser?.id ?? null,
+        cancelledAt: new Date().toISOString(),
+      });
+    }
     await deleteDoc(doc(db, REQUESTS_COL, id));
     if (req?.status === "approved" && req.userId && !NO_DEDUCTION_TYPES.includes(req.type)) {
       await reverseLeaveDeduction(req);

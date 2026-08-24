@@ -25,6 +25,8 @@ export default function ApprovalPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [commentOpen, setCommentOpen] = useState<string | null>(null);
   const [rejectNote, setRejectNote] = useState<Record<string, string>>({});
+  const [bulkRejectOpen, setBulkRejectOpen] = useState(false);
+  const [bulkRejectReason, setBulkRejectReason] = useState("");
 
   // 연차 부여 상태
   const [employees, setEmployees] = useState<SimpleUser[]>([]);
@@ -102,10 +104,12 @@ export default function ApprovalPage() {
     setSelected(new Set());
   }
   async function handleBulkReject() {
-    if (!selected.size) { showNotification("선택된 항목이 없습니다.", "error"); return; }
-    await Promise.all([...selected].map((id) => updateLeaveStatus(id, "rejected", "일괄 반려 처리")));
+    if (!bulkRejectReason.trim()) { showNotification("반려 사유를 입력해주세요.", "error"); return; }
+    await Promise.all([...selected].map((id) => updateLeaveStatus(id, "rejected", bulkRejectReason)));
     showNotification(`${selected.size}건이 일괄 반려 처리되었습니다.`);
     setSelected(new Set());
+    setBulkRejectOpen(false);
+    setBulkRejectReason("");
   }
 
   async function handleGrant() {
@@ -138,7 +142,10 @@ export default function ApprovalPage() {
           </div>
           {isManager && requests.length > 0 && (
             <div className="flex gap-3">
-              <button onClick={handleBulkReject} className="flex items-center gap-2 px-4 py-2 border border-primary text-primary rounded-lg hover:bg-primary-fixed text-sm font-bold transition-colors">
+              <button
+                onClick={() => { if (!selected.size) { showNotification("선택된 항목이 없습니다.", "error"); return; } setBulkRejectOpen(true); }}
+                className="flex items-center gap-2 px-4 py-2 border border-primary text-primary rounded-lg hover:bg-primary-fixed text-sm font-bold transition-colors"
+              >
                 <span className="material-symbols-outlined text-lg">close</span> 선택 반려
               </button>
               <button onClick={handleBulkApprove} className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:shadow-lg text-sm font-bold transition-all">
@@ -319,6 +326,52 @@ export default function ApprovalPage() {
           )}
         </div>
       </div>
+
+      {/* 일괄 반려 사유 입력 */}
+      {bulkRejectOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+            <div className="px-6 py-5 border-b border-outline-variant">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-error-container flex items-center justify-center flex-shrink-0">
+                  <span className="material-symbols-outlined text-error text-xl">close</span>
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-on-surface">선택 {selected.size}건 일괄 반려</h3>
+                  <p className="text-xs text-on-surface-variant mt-0.5">선택된 모든 신청에 동일한 반려 사유가 적용됩니다.</p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-on-surface-variant mb-1.5">반려 사유</label>
+                <textarea
+                  value={bulkRejectReason}
+                  onChange={(e) => setBulkRejectReason(e.target.value)}
+                  placeholder="반려 사유를 입력해주세요 (필수)"
+                  rows={3}
+                  className="w-full px-3 py-2.5 border border-outline-variant rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-error/30 focus:border-error transition resize-none"
+                />
+              </div>
+            </div>
+            <div className="px-6 pb-5 flex gap-3">
+              <button
+                onClick={() => { setBulkRejectOpen(false); setBulkRejectReason(""); }}
+                className="flex-1 py-2.5 border border-outline-variant rounded-xl text-sm font-bold text-on-surface-variant hover:bg-surface-container-low transition"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleBulkReject}
+                disabled={!bulkRejectReason.trim()}
+                className="flex-1 py-2.5 bg-error text-white rounded-xl text-sm font-bold hover:opacity-90 transition disabled:opacity-50"
+              >
+                일괄 반려
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }

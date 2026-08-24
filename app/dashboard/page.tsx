@@ -71,6 +71,7 @@ export default function DashboardPage() {
   const [detailReq, setDetailReq] = useState<LeaveRequest | null>(null);
   const [editReq, setEditReq] = useState<LeaveRequest | null>(null);
   const [cancelConfirmId, setCancelConfirmId] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
   const [quickRejectOpen, setQuickRejectOpen] = useState<string | null>(null);
   const [quickRejectNote, setQuickRejectNote] = useState<Record<string, string>>({});
 
@@ -227,11 +228,13 @@ export default function DashboardPage() {
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }, [state.leaveRequests, user.id, user.isManager]);
 
-  async function handleCancelRequest(req: LeaveRequest) {
-    await deleteLeave(req.id);
+  async function handleCancelRequest(req: LeaveRequest, reason: string) {
+    if (!reason.trim()) { showNotification("취소 사유를 입력해주세요.", "error"); return; }
+    await deleteLeave(req.id, reason);
     showNotification("휴가 신청이 취소되었습니다.");
     setDetailReq(null);
     setCancelConfirmId(null);
+    setCancelReason("");
   }
 
   async function handleQuickApprove(id: string) {
@@ -547,9 +550,11 @@ export default function DashboardPage() {
             req={detailReq}
             onClose={() => { setDetailReq(null); setCancelConfirmId(null); }}
             onEdit={() => { setEditReq(detailReq); setDetailReq(null); }}
-            onCancel={() => setCancelConfirmId(cancelConfirmId ? null : detailReq.id)}
+            onCancel={() => { setCancelConfirmId(cancelConfirmId ? null : detailReq.id); setCancelReason(""); }}
             cancelConfirm={cancelConfirmId === detailReq.id}
-            onCancelConfirm={() => handleCancelRequest(detailReq)}
+            cancelReason={cancelReason}
+            onCancelReasonChange={setCancelReason}
+            onCancelConfirm={() => handleCancelRequest(detailReq, cancelReason)}
           />
         )}
         {calendarModal}
@@ -672,9 +677,11 @@ export default function DashboardPage() {
           req={detailReq}
           onClose={() => { setDetailReq(null); setCancelConfirmId(null); }}
           onEdit={() => { setEditReq(detailReq); setDetailReq(null); }}
-          onCancel={() => setCancelConfirmId(cancelConfirmId ? null : detailReq.id)}
+          onCancel={() => { setCancelConfirmId(cancelConfirmId ? null : detailReq.id); setCancelReason(""); }}
           cancelConfirm={cancelConfirmId === detailReq.id}
-          onCancelConfirm={() => handleCancelRequest(detailReq)}
+          cancelReason={cancelReason}
+          onCancelReasonChange={setCancelReason}
+          onCancelConfirm={() => handleCancelRequest(detailReq, cancelReason)}
         />
       )}
       {calendarModal}
@@ -764,12 +771,14 @@ export default function DashboardPage() {
   );
 }
 
-function LeaveDetailModal({ req, onClose, onEdit, onCancel, cancelConfirm, onCancelConfirm }: {
+function LeaveDetailModal({ req, onClose, onEdit, onCancel, cancelConfirm, cancelReason, onCancelReasonChange, onCancelConfirm }: {
   req: LeaveRequest;
   onClose: () => void;
   onEdit?: () => void;
   onCancel?: () => void;
   cancelConfirm?: boolean;
+  cancelReason?: string;
+  onCancelReasonChange?: (v: string) => void;
   onCancelConfirm?: () => void;
 }) {
   const statusStyles = {
@@ -843,8 +852,15 @@ function LeaveDetailModal({ req, onClose, onEdit, onCancel, cancelConfirm, onCan
               {req.status === "approved" && (
                 <p className="text-xs text-on-surface-variant text-center">승인된 휴가가 취소되어 연차가 복원됩니다.</p>
               )}
+              <textarea
+                value={cancelReason ?? ""}
+                onChange={(e) => onCancelReasonChange?.(e.target.value)}
+                placeholder="취소 사유를 입력해주세요 (필수)"
+                rows={2}
+                className="w-full px-3 py-2 border border-outline-variant rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-error/30 focus:border-error transition resize-none"
+              />
               <div className="flex gap-2">
-                <button onClick={onCancelConfirm} className="flex-1 py-2 bg-error text-white text-sm font-bold rounded-xl hover:opacity-90 transition">취소 확정</button>
+                <button onClick={onCancelConfirm} disabled={!cancelReason?.trim()} className="flex-1 py-2 bg-error text-white text-sm font-bold rounded-xl hover:opacity-90 transition disabled:opacity-40 disabled:cursor-not-allowed">취소 확정</button>
                 <button onClick={() => onCancel?.()} className="flex-1 py-2 border border-outline-variant text-sm text-on-surface-variant rounded-xl hover:bg-surface-container-low transition">돌아가기</button>
               </div>
             </div>
