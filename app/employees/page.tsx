@@ -184,7 +184,87 @@ export default function EmployeesPage() {
               {activeTab === "active" ? "등록된 직원이 없습니다." : "퇴사자가 없습니다."}
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+              {/* 모바일 카드형 목록 */}
+              <div className="md:hidden divide-y divide-outline-variant">
+                {visibleEmps.map((emp) => {
+                  const total = round1(emp.totalLeave + emp.grantedDays);
+                  const pct = Math.min(100, Math.round((emp.usedDays / Math.max(1, total)) * 100));
+                  const renewalDays = activeTab === "active" ? daysUntilLeaveRenewal(emp.joinDate) : null;
+                  return (
+                    <div key={emp.id} className={`p-4 space-y-3 ${activeTab === "resigned" ? "opacity-60" : ""}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-full bg-primary-fixed flex items-center justify-center text-primary text-xs font-bold flex-shrink-0">
+                            {emp.initials}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-sm text-on-surface truncate">{emp.name} <span className="font-normal text-on-surface-variant">@{emp.username}</span></p>
+                            {emp.joinDate && <p className="text-xs text-on-surface-variant">입사 {emp.joinDate}</p>}
+                            {activeTab === "resigned" && <p className="text-xs text-error font-medium">퇴사 {emp.resignationDate}</p>}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button
+                            onClick={() => setHistoryTarget({ id: emp.id, name: emp.name })}
+                            title="부여 이력"
+                            className="w-8 h-8 rounded-full inline-flex items-center justify-center text-indigo-500 hover:bg-indigo-50 transition"
+                          >
+                            <span className="material-symbols-outlined text-lg">history</span>
+                          </button>
+                          {activeTab === "resigned" ? (
+                            <button
+                              onClick={() => { setReinstateTarget({ id: emp.id, name: emp.name }); setRejoinDate(todayStr()); setRejoinName(emp.name); }}
+                              title="복직 처리"
+                              className="w-8 h-8 rounded-full inline-flex items-center justify-center text-primary hover:bg-primary-container transition"
+                            >
+                              <span className="material-symbols-outlined text-lg">person_add</span>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => { setResignTarget({ id: emp.id, name: emp.name }); setResignDate(todayStr()); }}
+                              title="퇴사 처리"
+                              className="w-8 h-8 rounded-full inline-flex items-center justify-center text-error hover:bg-error-container transition"
+                            >
+                              <span className="material-symbols-outlined text-lg">person_remove</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        <div>
+                          <p className="text-[10px] text-on-surface-variant">총 연차</p>
+                          <p className="font-bold text-sm text-on-surface">{total}일</p>
+                          {emp.grantedDays > 0 && <p className="text-[10px] text-green-600">+{emp.grantedDays}일 부여</p>}
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-on-surface-variant">사용</p>
+                          <p className="font-bold text-sm text-secondary">{emp.usedDays}일</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-on-surface-variant">잔여</p>
+                          <p className={`font-bold text-sm ${emp.remaining <= 3 ? "text-error" : emp.remaining <= 5 ? "text-yellow-600" : "text-primary"}`}>{emp.remaining}일</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-2 bg-surface-container rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${pct >= 80 ? "bg-error" : pct >= 50 ? "bg-yellow-400" : "bg-secondary"}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <span className="text-xs text-on-surface-variant w-8 text-right">{pct}%</span>
+                      </div>
+                      {renewalDays !== null && renewalDays >= 0 && renewalDays <= 30 && (
+                        <p className="text-[11px] text-primary">{renewalDays}일 후 연차 갱신</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* 데스크톱 테이블 */}
+              <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left min-w-[640px]">
                 <thead className="bg-surface-container-low text-xs font-bold text-on-surface-variant uppercase tracking-wider">
                   <tr>
@@ -279,7 +359,8 @@ export default function EmployeesPage() {
                   })}
                 </tbody>
               </table>
-            </div>
+              </div>
+            </>
           )}
         </div>
       </div>

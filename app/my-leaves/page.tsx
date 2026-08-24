@@ -222,7 +222,7 @@ export default function MyLeavesPage() {
 
   return (
     <AppLayout>
-      <div className="h-[calc(100vh-4rem)] overflow-hidden flex flex-col p-4 md:p-6 gap-3">
+      <div className="min-h-[calc(100vh-4rem)] overflow-y-auto md:h-[calc(100vh-4rem)] md:overflow-hidden flex flex-col p-4 md:p-6 gap-3">
         {/* Header */}
         <div className="flex-shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
@@ -251,7 +251,7 @@ export default function MyLeavesPage() {
 
         {/* ── 팀 통계 탭 ── */}
         {activeTab === "history" && (
-          <div className="flex-1 min-h-0 flex flex-col gap-4 overflow-hidden">
+          <div className="flex flex-col gap-4 md:flex-1 md:min-h-0 md:overflow-hidden">
             {/* 통계 — 원래 크기 유지 */}
             <div className="flex-shrink-0 grid grid-cols-12 gap-5">
               <div className="col-span-12 lg:col-span-4 grid gap-4">
@@ -309,8 +309,10 @@ export default function MyLeavesPage() {
                     <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm bg-amber-200 border border-amber-300" />반차</span>
                   </div>
                 </div>
-                {/* 차트 본체 */}
-                <div className="flex-1 min-h-0 flex flex-col gap-0">
+                {/* 차트 본체 — lg 미만에서는 통계 카드와 같은 grid 행이 아니라(세로로 쌓임) 기준 높이가
+                    없어지므로 고정 높이를 직접 줌. lg 이상에서는 기존처럼 grid stretch로 왼쪽 카드
+                    높이에 맞춰 자동으로 채움. */}
+                <div className="h-56 lg:h-auto lg:flex-1 lg:min-h-0 flex flex-col gap-0">
                   {/* Y축 + 바 영역 */}
                   <div className="flex-1 min-h-0 flex gap-1">
                     {/* Y축 레이블 — 바 영역과 동일 높이의 relative 컨테이너, 값 위치에 absolute 배치 */}
@@ -374,7 +376,7 @@ export default function MyLeavesPage() {
 
         {/* ── Leave History 탭 ── */}
         {activeTab === "detail" && (
-          <div className="flex-1 min-h-0 flex flex-col bg-white rounded-xl border border-outline-variant shadow-sm overflow-hidden">
+          <div className="flex flex-col bg-white rounded-xl border border-outline-variant shadow-sm md:flex-1 md:min-h-0 md:overflow-hidden">
             <div className="flex-shrink-0 px-5 py-4 border-b border-outline-variant flex items-center justify-between flex-wrap gap-3 bg-surface-bright">
               <div>
                 <h4 className="text-base font-bold text-primary">Leave History</h4>
@@ -424,8 +426,51 @@ export default function MyLeavesPage() {
                 </button>
               </div>
             </div>
-            <div ref={tableContainerRef} className="flex-1 min-h-0 overflow-hidden">
-              <table className="w-full text-left min-w-[640px]">
+            <div ref={tableContainerRef} className="flex-1 min-h-0 overflow-y-auto md:overflow-hidden">
+              {/* 모바일 카드형 목록 */}
+              <div className="md:hidden divide-y divide-outline-variant">
+                {paginated.length === 0 ? (
+                  <div className="py-16 text-center text-on-surface-variant text-sm">
+                    <span className="material-symbols-outlined text-4xl block mb-2 opacity-30">search_off</span>
+                    검색 결과가 없습니다.
+                  </div>
+                ) : paginated.map((r) => {
+                  const isSelected = selectedIds.has(r.id);
+                  return (
+                    <div
+                      key={r.id}
+                      onClick={() => toggleSelect(r.id)}
+                      className={`px-4 py-3.5 space-y-2 cursor-pointer transition-colors ${isSelected ? "bg-primary/10" : "active:bg-primary/5"}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            onClick={(e) => { e.stopPropagation(); toggleSelect(r.id); }}
+                            className={`block w-3.5 h-3.5 rounded-full border-2 flex-shrink-0 cursor-pointer transition-colors ${isSelected ? "border-primary bg-primary" : "border-outline-variant"}`}
+                          />
+                          <span className="text-sm font-semibold text-on-surface truncate">{r.userName}</span>
+                          <span className="text-xs font-medium text-on-surface-variant flex-shrink-0">{LEAVE_TYPE_LABELS[r.type]}</span>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold flex-shrink-0 ${STATUS_STYLES[r.status]}`}>{STATUS_LABELS[r.status]}</span>
+                      </div>
+                      <div className="text-xs text-on-surface-variant flex items-center gap-3">
+                        <span>신청일 <span className="font-bold text-on-surface">{toLocalDateStr(new Date(r.createdAt))}</span></span>
+                        <span>{r.startDate} ~ {r.endDate}</span>
+                        <span className="font-bold text-on-surface">{r.days}일</span>
+                      </div>
+                      {r.reason && <p className="text-xs text-on-surface-variant truncate">{r.reason}</p>}
+                      {r.status === "pending" && (
+                        <div className="text-right" onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => { setCancelTarget(r); setCancelReason(""); }} className="text-xs text-error hover:underline font-medium">취소</button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* 데스크톱 테이블 */}
+              <table className="hidden md:table w-full text-left min-w-[640px]">
                 <thead className="sticky top-0 z-10">
                   <tr className="bg-surface-bright text-xs font-bold text-on-surface-variant uppercase tracking-wider">
                     <th className="pl-5 pr-2 py-3 border-b border-outline-variant w-8"></th>

@@ -159,7 +159,68 @@ export default function ApprovalPage() {
           {/* Table */}
           <div className="col-span-12 lg:col-span-8">
             <div className="bg-white border border-outline-variant rounded-xl shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
+              {/* 모바일 카드형 목록 */}
+              <div className="md:hidden divide-y divide-outline-variant">
+                {requests.length === 0 ? (
+                  <div className="py-16 text-center text-on-surface-variant text-sm">
+                    <span className="material-symbols-outlined text-4xl block mb-2 opacity-30">task_alt</span>
+                    검토 대기 중인 신청이 없습니다.
+                  </div>
+                ) : requests.map((r) => (
+                  <div key={r.id} className="p-4 space-y-3">
+                    <div className="flex items-start gap-3">
+                      {isManager && (
+                        <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelect(r.id)} className="rounded mt-1.5 flex-shrink-0" />
+                      )}
+                      <div className="w-9 h-9 rounded-full bg-primary-fixed flex items-center justify-center text-primary text-xs font-bold flex-shrink-0">
+                        {r.initials}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-on-surface">{r.userName}</p>
+                        <p className="text-xs text-on-surface-variant">{r.department} · {r.role}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-sm pl-[calc(2.25rem+0.75rem)]">
+                      <span className="text-on-surface">{LEAVE_TYPE_LABELS[r.type]}</span>
+                      <span className="text-on-surface-variant text-xs">{r.startDate} ~ {r.endDate} ({r.days}일)</span>
+                    </div>
+                    {isManager && (
+                      <div className="flex gap-2 justify-end">
+                        <button
+                          onClick={() => setCommentOpen(commentOpen === r.id ? null : r.id)}
+                          className="p-1.5 text-on-surface-variant hover:text-primary transition-colors"
+                          title="상세보기/반려"
+                        >
+                          <span className="material-symbols-outlined text-lg">chat_bubble_outline</span>
+                        </button>
+                        <button onClick={() => handleApprove(r.id)} className="px-3 py-1.5 bg-primary text-white text-xs font-bold rounded-lg hover:opacity-90 transition">승인</button>
+                      </div>
+                    )}
+                    {commentOpen === r.id && (
+                      <div className="bg-surface-container-low rounded-xl p-3 space-y-2">
+                        <p className="text-xs text-on-surface-variant bg-surface-container p-3 rounded-lg">
+                          <span className="font-bold">신청 사유:</span> {r.reason}
+                        </p>
+                        <textarea
+                          value={rejectNote[r.id] ?? ""}
+                          onChange={(e) => setRejectNote((p) => ({ ...p, [r.id]: e.target.value }))}
+                          placeholder="반려 사유를 입력해주세요 (반려 시 필수)"
+                          rows={2}
+                          className="w-full p-3 border border-outline-variant rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none bg-white"
+                        />
+                        <div className="flex gap-2">
+                          <button onClick={() => handleApprove(r.id)} className="flex-1 py-2 bg-primary text-white text-xs font-bold rounded-lg hover:opacity-90">승인하기</button>
+                          <button onClick={() => handleReject(r.id)} className="flex-1 py-2 border border-error text-error text-xs font-bold rounded-lg hover:bg-error-container/20">반려하기</button>
+                          <button onClick={() => setCommentOpen(null)} className="px-3 py-2 text-on-surface-variant text-xs hover:underline">취소</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* 데스크톱 테이블 */}
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-left min-w-[560px]">
                   <thead className="bg-surface-container-low text-xs font-bold text-on-surface-variant uppercase">
                     <tr>

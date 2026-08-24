@@ -452,7 +452,7 @@ export default function DashboardPage() {
   if (user.isManager) {
     return (
       <AppLayout>
-        <div className="h-[calc(100vh-4rem)] overflow-hidden flex flex-col p-4 md:p-6 gap-4">
+        <div className="min-h-[calc(100vh-4rem)] overflow-y-auto md:h-[calc(100vh-4rem)] md:overflow-hidden flex flex-col p-4 md:p-6 gap-4">
           {/* Header */}
           <div className="flex-shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
@@ -477,15 +477,15 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Calendar + Right panel — fills remaining height */}
-          <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4">
+          {/* Calendar + Right panel — fills remaining height (desktop만; 모바일은 자연스러운 높이로 페이지 스크롤) */}
+          <div className="flex flex-col lg:flex-row gap-4 md:flex-1 md:min-h-0">
             <div className="flex-[2] min-h-0 min-w-0 cursor-zoom-in" onDoubleClick={() => setCalendarExpanded(true)}>{renderCalendar(true)}</div>
 
             {/* Right panel: Quick Approve + Recent */}
-            <div className="flex-1 min-h-0 min-w-0 flex flex-col gap-4">
+            <div className="min-w-0 flex flex-col gap-4 md:flex-1 md:min-h-0">
 
               {/* 빠른 승인 */}
-              <div className="flex-1 min-h-0 bg-white rounded-xl border border-outline-variant shadow-sm flex flex-col overflow-hidden">
+              <div className="bg-white rounded-xl border border-outline-variant shadow-sm flex flex-col md:flex-1 md:min-h-0 md:overflow-hidden">
                 <div className="flex-shrink-0 px-4 py-3 border-b border-outline-variant flex justify-between items-center bg-surface-bright">
                   <div className="flex items-center gap-2">
                     <span className="material-symbols-outlined text-lg text-primary">task_alt</span>
@@ -497,12 +497,12 @@ export default function DashboardPage() {
                   <a href="/approval" className="text-xs text-primary font-medium hover:underline">전체 보기</a>
                 </div>
                 {pendingRequests.length === 0 ? (
-                  <div className="flex-1 flex flex-col items-center justify-center text-on-surface-variant gap-1">
+                  <div className="flex flex-col items-center justify-center text-on-surface-variant gap-1 py-6 md:flex-1">
                     <span className="material-symbols-outlined text-3xl opacity-30">check_circle</span>
                     <p className="text-xs">대기 중인 신청이 없습니다.</p>
                   </div>
                 ) : (
-                  <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-outline-variant [&>*:last-child]:border-b [&>*:last-child]:border-outline-variant">
+                  <div className="divide-y divide-outline-variant [&>*:last-child]:border-b [&>*:last-child]:border-outline-variant md:flex-1 md:min-h-0 md:overflow-y-auto">
                     {pendingRequests.map((r) => (
                       <div key={r.id}>
                         <div className="px-4 py-2.5 flex items-center gap-2.5">
@@ -544,12 +544,12 @@ export default function DashboardPage() {
               </div>
 
               {/* 연차 조정 */}
-              <div className="flex-1 min-h-0 bg-white rounded-xl border border-outline-variant shadow-sm flex flex-col overflow-hidden">
+              <div className="bg-white rounded-xl border border-outline-variant shadow-sm flex flex-col md:flex-1 md:min-h-0 md:overflow-hidden">
                 <div className="flex-shrink-0 px-4 py-3 border-b border-outline-variant flex items-center gap-2 bg-surface-bright">
                   <span className="material-symbols-outlined text-lg text-primary">card_giftcard</span>
                   <h3 className="text-base font-bold text-on-surface">연차 조정</h3>
                 </div>
-                <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+                <div className="p-4 flex flex-col gap-3 md:flex-1 md:overflow-y-auto">
                   <div>
                     <label className="block text-xs font-bold text-on-surface-variant mb-1">직원 선택</label>
                     <select
