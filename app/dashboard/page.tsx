@@ -108,7 +108,7 @@ export default function DashboardPage() {
       while (cur <= end) {
         const dow = cur.getDay();
         const key = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`;
-        if (dow !== 0 && dow !== 6 && !isHoliday(key)) {
+        if (dow !== 0 && dow !== 6 && !isHoliday(key, state.holidays)) {
           if (!map[key]) map[key] = [];
           if (!map[key].some((e) => e.userId === r.userId))
             map[key].push({ name: r.userName, userId: r.userId, status: r.status as "approved" | "pending", type: r.type });
@@ -117,7 +117,7 @@ export default function DashboardPage() {
       }
     });
     return map;
-  }, [state.leaveRequests]);
+  }, [state.leaveRequests, state.holidays]);
 
   const firstDow = new Date(viewYear, viewMonth, 1).getDay();
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
@@ -191,7 +191,7 @@ export default function DashboardPage() {
 
   function handleDateMouseDown(dateStr: string) {
     const dow = new Date(dateStr + "T00:00:00").getDay();
-    if (dateStr < todayStr || dow === 0 || dow === 6 || isHoliday(dateStr)) return;
+    if (dateStr < todayStr || dow === 0 || dow === 6 || isHoliday(dateStr, state.holidays)) return;
     dragRef.current = { start: dateStr, current: dateStr };
     setDragRange({ start: dateStr, end: dateStr });
   }
@@ -207,7 +207,7 @@ export default function DashboardPage() {
     dragRef.current = null;
     setDragRange(null);
     const dow = new Date(dateStr + "T00:00:00").getDay();
-    if (dow === 0 || dow === 6 || isHoliday(dateStr)) return;
+    if (dow === 0 || dow === 6 || isHoliday(dateStr, state.holidays)) return;
     const rangeStart = drag.start <= dateStr ? drag.start : dateStr;
     const rangeEnd = drag.start <= dateStr ? dateStr : drag.start;
     setModalDate(rangeStart);
@@ -287,7 +287,7 @@ export default function DashboardPage() {
               const showLeaves = leaves.slice(0, 2);
               const extra = leaves.length - showLeaves.length;
 
-              const holidayName = getHolidayName(dateStr);
+              const holidayName = getHolidayName(dateStr, state.holidays);
               const isPublicHoliday = holidayName !== null;
 
               if (isAdmin) {

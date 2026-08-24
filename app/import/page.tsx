@@ -24,7 +24,7 @@ const DEADLINE_OPTIONS: [DeadlineStatus, string][] = [
   ["delayed", "지연 중"],
 ];
 
-function calcDays(start: string, end: string, type: LeaveType): number {
+function calcDays(start: string, end: string, type: LeaveType, holidays: Record<string, string>): number {
   if (!start || !end || end < start) return 0;
   const half = type === "half-am" || type === "half-pm";
   let n = 0;
@@ -33,7 +33,7 @@ function calcDays(start: string, end: string, type: LeaveType): number {
   while (cur <= e) {
     const dow = cur.getDay();
     const ds = toLocalDateStr(cur);
-    if (dow !== 0 && dow !== 6 && !isHoliday(ds)) n++;
+    if (dow !== 0 && dow !== 6 && !isHoliday(ds, holidays)) n++;
     cur.setDate(cur.getDate() + 1);
   }
   return half ? n * 0.5 : n;
@@ -107,7 +107,7 @@ export default function ImportPage() {
   if (process.env.NODE_ENV === "production") return null;
   if (!user?.isManager) return null;
 
-  const days = calcDays(startDate, endDate, leaveType);
+  const days = calcDays(startDate, endDate, leaveType, state.holidays);
   const selectedEmp = employees.find((e) => e.id === selectedUserId);
 
   async function handlePdfParse() {

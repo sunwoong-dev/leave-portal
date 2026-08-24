@@ -21,6 +21,7 @@ const NO_DEDUCTION_TYPES = ["sick", "reservist"];
 
 const NOTIF_COL = "leave_portal_notifications";
 const NOTIF_LOGS_COL = "leave_portal_notification_logs";
+const HOLIDAYS_COL = "leave_portal_holidays";
 
 interface State {
   currentUser: User | null;
@@ -28,6 +29,7 @@ interface State {
   leaveGrants: LeaveGrant[];
   appNotifications: AppNotification[];
   notification: { message: string; type: "success" | "error" } | null;
+  holidays: Record<string, string>;
 }
 
 type Action =
@@ -39,7 +41,8 @@ type Action =
   | { type: "SET_NOTIFICATION"; payload: { message: string; type: "success" | "error" } | null }
   | { type: "UPDATE_USER_BALANCE"; payload: number }
   | { type: "UPDATE_USER_SIGNATURE"; payload: string | undefined }
-  | { type: "UPDATE_MUST_CHANGE_PASSWORD"; payload: boolean };
+  | { type: "UPDATE_MUST_CHANGE_PASSWORD"; payload: boolean }
+  | { type: "SET_HOLIDAYS"; payload: Record<string, string> };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -64,6 +67,8 @@ function reducer(state: State, action: Action): State {
     case "UPDATE_MUST_CHANGE_PASSWORD":
       if (!state.currentUser) return state;
       return { ...state, currentUser: { ...state.currentUser, mustChangePassword: action.payload } };
+    case "SET_HOLIDAYS":
+      return { ...state, holidays: action.payload };
     default:
       return state;
   }
@@ -75,6 +80,7 @@ const INITIAL_STATE: State = {
   leaveGrants: [],
   appNotifications: [],
   notification: null,
+  holidays: {},
 };
 
 export interface SignupData {
@@ -248,6 +254,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = onSnapshot(collection(db, GRANTS_COL), (snap) => {
       const grants = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as LeaveGrant[];
       dispatch({ type: "SET_LEAVE_GRANTS", payload: grants });
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 실시간 공휴일 목록 (연도별 문서 — api/cron/sync-holidays가 채움) — 하나로 병합
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, HOLIDAYS_COL), (snap) => {
+      const merged: Record<string, string> = {};
+      snap.docs.forEach((d) => {
+        const yearHolidays = d.data().holidays as Record<string, string> | undefined;
+        if (yearHolidays) Object.assign(merged, yearHolidays);
+      });
+      dispatch({ type: "SET_HOLIDAYS", payload: merged });
     });
     return () => unsubscribe();
   }, []);

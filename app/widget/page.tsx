@@ -58,7 +58,7 @@ export default function WidgetPage() {
       while (cur <= end) {
         const dow = cur.getDay();
         const key = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`;
-        if (dow !== 0 && dow !== 6 && !isHoliday(key)) {
+        if (dow !== 0 && dow !== 6 && !isHoliday(key, state.holidays)) {
           if (!map[key]) map[key] = [];
           if (!map[key].some((e) => e.userId === r.userId))
             map[key].push({ name: r.userName, userId: r.userId, type: r.type, status: r.status });
@@ -67,7 +67,7 @@ export default function WidgetPage() {
       }
     });
     return map;
-  }, [state.leaveRequests]);
+  }, [state.leaveRequests, state.holidays]);
 
   if (!hydrated) {
     return (
@@ -157,7 +157,7 @@ export default function WidgetPage() {
           const dow = new Date(viewYear, viewMonth, day).getDay();
           const isWeekend = dow === 0 || dow === 6;
           const isToday = ds === todayStr;
-          const isHol = isHoliday(ds);
+          const isHol = isHoliday(ds, state.holidays);
           const leaves = leaveDateMap[ds] ?? [];
           const hasLeave = leaves.length > 0;
           const isSelected = ds === selectedDate;
@@ -165,7 +165,7 @@ export default function WidgetPage() {
           return (
             <div
               key={day}
-              title={getHolidayName(ds) ?? undefined}
+              title={getHolidayName(ds, state.holidays) ?? undefined}
               onClick={() => hasLeave ? setSelectedDate(ds === selectedDate ? null : ds) : undefined}
               className={`flex flex-col items-center py-1 rounded-lg transition
                 ${hasLeave ? "cursor-pointer hover:bg-gray-50" : ""}

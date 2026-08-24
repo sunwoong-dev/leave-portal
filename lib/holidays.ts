@@ -65,13 +65,17 @@ const VARIABLE_HOLIDAYS: Record<string, string> = {
   "2027-10-04": "대체공휴일 (개천절)",
 };
 
-export function getHolidayName(dateStr: string): string | null {
+// extra: 공공데이터포털 API로 동기화된 공휴일(store의 state.holidays) — 설/추석처럼 음력 기반이라
+// 아래 정적 목록만으론 유지보수가 안 되는 연도를 커버한다. 존재하면 최우선으로 확인하고, Firestore
+// 동기화가 아직 안 됐거나 실패한 경우를 대비해 정적 목록으로 폴백한다.
+export function getHolidayName(dateStr: string, extra?: Record<string, string>): string | null {
+  if (extra?.[dateStr]) return extra[dateStr];
   if (VARIABLE_HOLIDAYS[dateStr]) return VARIABLE_HOLIDAYS[dateStr];
   const year = parseInt(dateStr.slice(0, 4));
   if (isNaN(year)) return null;
   return fixedHolidays(year)[dateStr] ?? null;
 }
 
-export function isHoliday(dateStr: string): boolean {
-  return getHolidayName(dateStr) !== null;
+export function isHoliday(dateStr: string, extra?: Record<string, string>): boolean {
+  return getHolidayName(dateStr, extra) !== null;
 }

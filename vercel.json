@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/purge-resigned",
       "schedule": "0 18 * * *"
+    },
+    {
+      "path": "/api/cron/sync-holidays",
+      "schedule": "0 19 * * *"
     }
   ]
 }

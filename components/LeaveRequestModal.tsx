@@ -21,7 +21,7 @@ function isHalf(t: LeaveType) {
   return t === "half-am" || t === "half-pm";
 }
 
-function calcDays(start: string, end: string, type: LeaveType): number {
+function calcDays(start: string, end: string, type: LeaveType, holidays: Record<string, string>): number {
   if (!start || !end || end < start) return 0;
   let n = 0;
   const cur = new Date(start + "T00:00:00");
@@ -29,7 +29,7 @@ function calcDays(start: string, end: string, type: LeaveType): number {
   while (cur <= e) {
     const dow = cur.getDay();
     const ds = toLocalDateStr(cur);
-    if (dow !== 0 && dow !== 6 && !isHoliday(ds)) n++;
+    if (dow !== 0 && dow !== 6 && !isHoliday(ds, holidays)) n++;
     cur.setDate(cur.getDate() + 1);
   }
   return isHalf(type) ? n * 0.5 : n;
@@ -129,7 +129,7 @@ export default function LeaveRequestModal({ open, initialDate, initialEndDate, e
   if (!visible || !user) return null;
 
   const half = isHalf(leaveType);
-  const days = calcDays(startDate, endDate, leaveType);
+  const days = calcDays(startDate, endDate, leaveType, state.holidays);
   const remaining = user.leaveBalance;
 
   function validateStep1() {
