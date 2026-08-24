@@ -8,8 +8,8 @@ import { maskName } from "@/lib/piiMask";
 import { db } from "@/lib/firebase";
 import { collection, getDocs } from "firebase/firestore";
 import { calcTotalLeave, currentLeaveYearStart, daysUntilLeaveRenewal, round1 } from "@/lib/leaveCalc";
-import { grantRemainingTotal, calcUsedLeave } from "@/lib/grantLedger";
-import { todayLocalStr as todayStr } from "@/lib/dateUtils";
+import { grantRemainingTotal, calcUsedLeave, grantExpiryDate, isGrantExpired } from "@/lib/grantLedger";
+import { todayLocalStr as todayStr, toLocalDateStr } from "@/lib/dateUtils";
 
 interface EmpStat {
   id: string;
@@ -43,6 +43,7 @@ export default function EmployeesPage() {
   const [rejoinDate, setRejoinDate] = useState(todayStr());
   const [rejoinName, setRejoinName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [historyTarget, setHistoryTarget] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     if (!user?.isManager) return;
@@ -76,6 +77,13 @@ export default function EmployeesPage() {
     })
     .sort((a, b) => a.name.localeCompare(b.name, "ko")),
   [baseEmps, state.leaveGrants, state.leaveRequests]);
+
+  const historyGrants = useMemo(() => {
+    if (!historyTarget) return [];
+    return state.leaveGrants
+      .filter((g) => g.userId === historyTarget.id)
+      .sort((a, b) => b.grantedAt.localeCompare(a.grantedAt));
+  }, [state.leaveGrants, historyTarget]);
 
   const activeEmps = useMemo(() => empStats.filter((e) => !e.resignationDate), [empStats]);
   const resignedEmps = useMemo(() => empStats.filter((e) => e.resignationDate), [empStats]);
@@ -185,7 +193,8 @@ export default function EmployeesPage() {
                     <th className="px-6 py-4 border-b border-outline-variant text-center">사용</th>
                     <th className="px-6 py-4 border-b border-outline-variant text-center">잔여</th>
                     <th className="px-6 py-4 border-b border-outline-variant">사용률</th>
-                    <th className="px-6 py-4 border-b border-outline-variant text-right">관리</th>
+                    <th className="px-3 py-4 border-b border-outline-variant text-center">부여 이력</th>
+                    <th className="px-3 py-4 border-b border-outline-variant text-center">퇴사 관리</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-outline-variant">
@@ -237,11 +246,32 @@ export default function EmployeesPage() {
                             <span className="text-xs text-on-surface-variant w-8 text-right">{pct}%</span>
                           </div>
                         </td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-3 py-4 text-center">
+                          <button
+                            onClick={() => setHistoryTarget({ id: emp.id, name: emp.name })}
+                            title="부여 이력"
+                            className="w-8 h-8 rounded-full inline-flex items-center justify-center text-indigo-500 hover:bg-indigo-50 transition"
+                          >
+                            <span className="material-symbols-outlined text-lg">history</span>
+                          </button>
+                        </td>
+                        <td className="px-3 py-4 text-center">
                           {activeTab === "resigned" ? (
-                            <button onClick={() => { setReinstateTarget({ id: emp.id, name: emp.name }); setRejoinDate(todayStr()); setRejoinName(emp.name); }} className="text-xs text-primary hover:underline font-medium">복직 처리</button>
+                            <button
+                              onClick={() => { setReinstateTarget({ id: emp.id, name: emp.name }); setRejoinDate(todayStr()); setRejoinName(emp.name); }}
+                              title="복직 처리"
+                              className="w-8 h-8 rounded-full inline-flex items-center justify-center text-primary hover:bg-primary-container transition"
+                            >
+                              <span className="material-symbols-outlined text-lg">person_add</span>
+                            </button>
                           ) : (
-                            <button onClick={() => { setResignTarget({ id: emp.id, name: emp.name }); setResignDate(todayStr()); }} className="text-xs text-error hover:underline font-medium">퇴사 처리</button>
+                            <button
+                              onClick={() => { setResignTarget({ id: emp.id, name: emp.name }); setResignDate(todayStr()); }}
+                              title="퇴사 처리"
+                              className="w-8 h-8 rounded-full inline-flex items-center justify-center text-error hover:bg-error-container transition"
+                            >
+                              <span className="material-symbols-outlined text-lg">person_remove</span>
+                            </button>
                           )}
                         </td>
                       </tr>
@@ -360,6 +390,73 @@ export default function EmployeesPage() {
               >
                 {saving ? "처리 중..." : "복직 처리"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* 부여 연차 이력 */}
+      {historyTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 overflow-hidden max-h-[85vh] flex flex-col">
+            <div className="px-6 py-5 border-b border-outline-variant flex items-center justify-between flex-shrink-0">
+              <div>
+                <h3 className="font-bold text-base text-on-surface">부여 연차 이력</h3>
+                <p className="text-xs text-on-surface-variant mt-0.5">{historyTarget.name}님에게 지급/차감된 연차 전체 내역</p>
+              </div>
+              <button onClick={() => setHistoryTarget(null)} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-surface-container-low transition">
+                <span className="material-symbols-outlined text-xl text-on-surface-variant">close</span>
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              {historyGrants.length === 0 ? (
+                <div className="py-16 text-center text-sm text-on-surface-variant">
+                  <span className="material-symbols-outlined text-4xl block mb-2 opacity-30">history</span>
+                  부여/차감 이력이 없습니다.
+                </div>
+              ) : (
+                <table className="w-full text-left">
+                  <thead className="sticky top-0 bg-surface-bright text-xs font-bold text-on-surface-variant uppercase tracking-wider">
+                    <tr>
+                      <th className="px-4 py-2.5 border-b border-outline-variant">일자</th>
+                      <th className="px-4 py-2.5 border-b border-outline-variant text-right">일수</th>
+                      <th className="px-4 py-2.5 border-b border-outline-variant text-right">잔여</th>
+                      <th className="px-4 py-2.5 border-b border-outline-variant">만료일</th>
+                      <th className="px-4 py-2.5 border-b border-outline-variant">상태</th>
+                      <th className="px-4 py-2.5 border-b border-outline-variant">사유</th>
+                      <th className="px-4 py-2.5 border-b border-outline-variant">처리자</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-outline-variant">
+                    {historyGrants.map((g) => {
+                      const isPositive = g.days > 0;
+                      const remaining = g.remainingDays ?? g.days;
+                      const expired = isPositive && isGrantExpired(g);
+                      const exhausted = isPositive && !expired && remaining <= 0;
+                      return (
+                        <tr key={g.id}>
+                          <td className="px-4 py-3 text-sm text-on-surface-variant whitespace-nowrap">{toLocalDateStr(new Date(g.grantedAt))}</td>
+                          <td className={`px-4 py-3 text-sm text-right font-bold whitespace-nowrap ${isPositive ? "text-primary" : "text-error"}`}>
+                            {isPositive ? `+${g.days}` : g.days}일
+                          </td>
+                          <td className="px-4 py-3 text-sm text-right text-on-surface-variant whitespace-nowrap">{isPositive ? `${remaining}일` : "-"}</td>
+                          <td className="px-4 py-3 text-sm text-on-surface-variant whitespace-nowrap">{isPositive ? toLocalDateStr(grantExpiryDate(g.grantedAt)) : "-"}</td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            {isPositive ? (
+                              <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${expired ? "bg-surface-container text-on-surface-variant" : exhausted ? "bg-surface-container text-on-surface-variant" : "bg-green-100 text-green-700"}`}>
+                                {expired ? "만료" : exhausted ? "소진" : "사용중"}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-on-surface-variant">-</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-on-surface max-w-[200px] truncate" title={g.reason}>{g.reason}</td>
+                          <td className="px-4 py-3 text-sm text-on-surface-variant whitespace-nowrap">{g.grantedBy}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>
