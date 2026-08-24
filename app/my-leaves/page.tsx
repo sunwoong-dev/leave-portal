@@ -488,14 +488,20 @@ export default function MyLeavesPage() {
                 전체 {myRequests.length}건 중 {myRequests.length === 0 ? 0 : (currentPage - 1) * perPage + 1}~{Math.min(currentPage * perPage, myRequests.length)} 표시
               </p>
               <div className="flex gap-1.5">
-                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-1.5 border border-outline-variant rounded-lg hover:bg-white transition-colors disabled:opacity-30">
+                <button onClick={() => setPage(1)} disabled={currentPage === 1} title="처음" className="p-1.5 border border-outline-variant rounded-lg hover:bg-white transition-colors disabled:opacity-30">
+                  <span className="material-symbols-outlined text-base">first_page</span>
+                </button>
+                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} title="이전" className="p-1.5 border border-outline-variant rounded-lg hover:bg-white transition-colors disabled:opacity-30">
                   <span className="material-symbols-outlined text-base">chevron_left</span>
                 </button>
                 {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
                   <button key={p} onClick={() => setPage(p)} className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors ${p === currentPage ? "bg-primary text-white" : "hover:bg-white"}`}>{p}</button>
                 ))}
-                <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="p-1.5 border border-outline-variant rounded-lg hover:bg-white transition-colors disabled:opacity-30">
+                <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} title="다음" className="p-1.5 border border-outline-variant rounded-lg hover:bg-white transition-colors disabled:opacity-30">
                   <span className="material-symbols-outlined text-base">chevron_right</span>
+                </button>
+                <button onClick={() => setPage(totalPages)} disabled={currentPage === totalPages} title="끝" className="p-1.5 border border-outline-variant rounded-lg hover:bg-white transition-colors disabled:opacity-30">
+                  <span className="material-symbols-outlined text-base">last_page</span>
                 </button>
               </div>
             </div>
