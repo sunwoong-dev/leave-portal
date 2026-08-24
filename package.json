@@ -15,7 +15,8 @@
     "next": "16.2.7",
     "pdfjs-dist": "^6.0.227",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-latest/xlsx-latest.tgz"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",

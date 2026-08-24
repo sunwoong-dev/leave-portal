@@ -9,7 +9,8 @@ import { collection, getDocs } from "firebase/firestore";
 import { calcTotalLeave } from "@/lib/leaveCalc";
 import { LEAVE_TYPE_LABELS, STATUS_LABELS, LeaveStatus, LeaveRequest } from "@/lib/types";
 import { generateLeavePDF } from "@/lib/pdfGenerator";
-import { toLocalDateStr } from "@/lib/dateUtils";
+import { toLocalDateStr, todayLocalStr } from "@/lib/dateUtils";
+import * as XLSX from "xlsx";
 
 const STATUS_STYLES: Record<LeaveStatus, string> = {
   approved: "bg-green-100 text-green-700",
@@ -165,6 +166,39 @@ export default function MyLeavesPage() {
     } finally {
       setCancelSaving(false);
     }
+  }
+
+  function handleExportExcel() {
+    if (myRequests.length === 0) {
+      showNotification("내보낼 신청 건이 없습니다.", "error");
+      return;
+    }
+    const header = ["신청일", "이름", "휴가 종류", "시작일", "종료일", "일수", "인수인계 사항", "상태", "처리자"];
+    const rows = myRequests.map((r) => [
+      toLocalDateStr(new Date(r.createdAt)),
+      r.userName,
+      LEAVE_TYPE_LABELS[r.type],
+      r.startDate,
+      r.endDate,
+      r.days,
+      r.reason ?? "",
+      STATUS_LABELS[r.status],
+      r.reviewedBy ?? "",
+    ]);
+    // 문자열 셀로 직접 써넣으므로(엑셀이 텍스트를 읽고 나서 재해석하는 CSV와 달리) 날짜가
+    // 날짜 일련번호로 자동 변환되면서 열이 좁아 "#######"로 뜨는 문제가 애초에 없다.
+    const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+    ws["!cols"] = header.map((h, i) => {
+      if (h === "인수인계 사항") {
+        const maxLen = Math.max(h.length, ...rows.map((r) => String(r[i]).length));
+        return { wch: Math.min(Math.max(maxLen + 2, 20), 60) };
+      }
+      const maxLen = Math.max(h.length, ...rows.map((r) => String(r[i]).length));
+      return { wch: maxLen + 2 };
+    });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "휴가 신청 내역");
+    XLSX.writeFile(wb, `휴가_신청_내역_${todayLocalStr()}.xlsx`);
   }
 
   async function handleExport() {
@@ -379,6 +413,14 @@ export default function MyLeavesPage() {
                 >
                   <span className="material-symbols-outlined text-base">picture_as_pdf</span>
                   {pdfLoading ? "생성 중..." : selectedIds.size > 0 ? `PDF (${selectedIds.size})` : "PDF"}
+                </button>
+                <button
+                  onClick={handleExportExcel}
+                  title="현재 조회 조건에 맞는 전체 내역을 Excel로 내보냅니다"
+                  className="flex items-center gap-1 px-2.5 py-1.5 border border-outline-variant rounded-lg text-xs font-semibold hover:bg-surface-container-low transition-colors"
+                >
+                  <span className="material-symbols-outlined text-base">table_view</span>
+                  Excel
                 </button>
               </div>
             </div>
