@@ -90,6 +90,29 @@ export default function DashboardPage() {
   const [showAllModal, setShowAllModal] = useState(false);
   const [allFilter, setAllFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
   const [calendarExpanded, setCalendarExpanded] = useState(false);
+  const [dayPopover, setDayPopover] = useState<{
+    dateStr: string;
+    leaves: Array<{ name: string; userId: string; status: "approved" | "pending"; type: string }>;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  function openDayPopover(
+    e: React.MouseEvent,
+    dateStr: string,
+    leaves: Array<{ name: string; userId: string; status: "approved" | "pending"; type: string }>
+  ) {
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setDayPopover({ dateStr, leaves, x: rect.left, y: rect.bottom + 4 });
+  }
+
+  useEffect(() => {
+    if (!dayPopover) return;
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape") setDayPopover(null); }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dayPopover]);
 
   const totalWithGrants = round1(user.totalLeave + grantedDays);
   const remaining = round1(totalWithGrants - usedLeave);
@@ -307,7 +330,15 @@ export default function DashboardPage() {
                         <div key={idx} style={{ backgroundColor: c.bg, color: c.text }} className="text-xs font-semibold px-2 py-1 rounded mb-0.5 truncate leading-tight">{emp.name} <span className="opacity-70 font-normal">· {LEAVE_SHORT[emp.type] ?? emp.type}</span></div>
                       );
                     })}
-                    {extra > 0 && <div className="text-[11px] text-on-surface-variant px-0.5">외 {extra}명</div>}
+                    {extra > 0 && (
+                      <button
+                        type="button"
+                        onClick={(e) => openDayPopover(e, dateStr, leaves)}
+                        className="text-[11px] text-on-surface-variant px-0.5 hover:underline hover:text-primary transition-colors"
+                      >
+                        외 {extra}명
+                      </button>
+                    )}
                   </div>
                 );
               }
@@ -339,7 +370,15 @@ export default function DashboardPage() {
                       <div key={idx} style={{ backgroundColor: c.bg, color: c.text }} className="text-xs font-semibold px-2 py-1 rounded mb-0.5 truncate leading-tight">{emp.name} <span className="opacity-70 font-normal">· {LEAVE_SHORT[emp.type] ?? emp.type}</span></div>
                     );
                   })}
-                  {extra > 0 && <div className="text-[11px] text-on-surface-variant px-0.5">외 {extra}명</div>}
+                  {extra > 0 && (
+                    <span
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => openDayPopover(e, dateStr, leaves)}
+                      className="inline-block text-[11px] text-on-surface-variant px-0.5 hover:underline hover:text-primary transition-colors"
+                    >
+                      외 {extra}명
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -376,6 +415,37 @@ export default function DashboardPage() {
         {renderCalendar(user.isManager)}
       </div>
     </div>
+  ) : null;
+
+  const dayPopoverEl = dayPopover ? (
+    <>
+      <div className="fixed inset-0 z-[70]" onClick={() => setDayPopover(null)} />
+      <div
+        className="fixed z-[71] w-56 max-h-72 overflow-y-auto bg-white rounded-xl shadow-2xl border border-outline-variant p-2"
+        style={{
+          left: Math.min(dayPopover.x, (typeof window !== "undefined" ? window.innerWidth : 400) - 240),
+          top: typeof window !== "undefined" ? Math.min(dayPopover.y, Math.max(8, window.innerHeight - 288 - 8)) : dayPopover.y,
+        }}
+      >
+        <p className="text-xs font-bold text-on-surface-variant px-1.5 pb-1.5 mb-1 border-b border-outline-variant">{dayPopover.dateStr} · {dayPopover.leaves.length}명</p>
+        <div className="space-y-1">
+          {dayPopover.leaves.map((emp, idx) => {
+            const c = getUserColor(emp.userId, emp.name);
+            const isPending = emp.status === "pending";
+            return (
+              <div
+                key={idx}
+                className="flex items-center gap-1.5 px-1.5 py-1 rounded-lg"
+                style={isPending ? { border: `1.5px solid ${c.text}`, color: c.text } : { backgroundColor: c.bg, color: c.text }}
+              >
+                <span className="text-xs font-semibold truncate flex-1">{emp.name}</span>
+                <span className="text-[11px] opacity-80 flex-shrink-0">{LEAVE_SHORT[emp.type] ?? emp.type}{isPending ? " · 검토중" : ""}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </>
   ) : null;
 
   // ── ADMIN DASHBOARD ──
@@ -558,6 +628,7 @@ export default function DashboardPage() {
           />
         )}
         {calendarModal}
+        {dayPopoverEl}
       </AppLayout>
     );
   }
@@ -685,6 +756,7 @@ export default function DashboardPage() {
         />
       )}
       {calendarModal}
+      {dayPopoverEl}
 
       {/* 전체 신청 내역 모달 */}
       {showAllModal && (
