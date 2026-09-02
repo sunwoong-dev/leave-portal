@@ -1,5 +1,14 @@
 # Project Development Guidelines (CLAUDE.md)
 
+## 0. 커밋/푸시 후 Obsidian 노트 작성
+
+- 프로젝트명은 `leave-portal`. 활동/코딩 로그 노트는 항상
+  `C:\Users\A\Obsidian Vault\Projects\LeavePortal\04_활동로그\...`에 작성한다.
+- 로컬 폴더명(`leave-portal`)을 한글로 번역하거나("휴가포털") 다른 이름으로 바꿔
+  새 프로젝트 폴더를 만들지 않는다. Obsidian 쪽 폴더명은 이미 `LeavePortal`로 고정되어 있다.
+- frontmatter: `project: leave-portal`, 태그는 `["#project/leave-portal", ...]`.
+- 노트 제목(한글 "휴가포털" 접두어)과 저장 위치(영문 `LeavePortal` 폴더)는 서로 다르니 혼동 금지.
+
 ## 1. Persona
 
 You are a senior full-stack developer with 10+ years of experience, operating at the level of a CTO who still writes code.

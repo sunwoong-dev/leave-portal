@@ -20,7 +20,7 @@ const STATUS_STYLES: Record<LeaveStatus, string> = {
 
 export default function MyLeavesPage() {
   const router = useRouter();
-  const { state, deleteLeave, showNotification } = useStore();
+  const { state, deleteLeave, reopenRejectedLeave, revokeApprovedLeave, showNotification } = useStore();
   const user = state.currentUser;
 
   useEffect(() => {
@@ -41,6 +41,10 @@ export default function MyLeavesPage() {
   const [cancelTarget, setCancelTarget] = useState<LeaveRequest | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelSaving, setCancelSaving] = useState(false);
+  const [reopeningId, setReopeningId] = useState<string | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<LeaveRequest | null>(null);
+  const [revokeReason, setRevokeReason] = useState("");
+  const [revokeSaving, setRevokeSaving] = useState(false);
 
   function toggleSelect(id: string) {
     setSelectedIds((prev) => {
@@ -165,6 +169,35 @@ export default function MyLeavesPage() {
       setCancelReason("");
     } finally {
       setCancelSaving(false);
+    }
+  }
+
+  // 휴가 시작일이 지나지 않은 건만 관리자가 상태를 되돌리거나 뒤집을 수 있게 허용
+  function canOverride(r: LeaveRequest) {
+    return r.startDate > todayLocalStr();
+  }
+
+  async function handleReopen(r: LeaveRequest) {
+    setReopeningId(r.id);
+    try {
+      await reopenRejectedLeave(r.id);
+      showNotification("재검토 대기로 되돌렸습니다.", "success");
+    } finally {
+      setReopeningId(null);
+    }
+  }
+
+  async function handleConfirmRevoke() {
+    if (!revokeTarget) return;
+    if (!revokeReason.trim()) { showNotification("반려 사유를 입력해주세요.", "error"); return; }
+    setRevokeSaving(true);
+    try {
+      await revokeApprovedLeave(revokeTarget.id, revokeReason);
+      showNotification("승인을 취소하고 반려 처리했습니다.", "success");
+      setRevokeTarget(null);
+      setRevokeReason("");
+    } finally {
+      setRevokeSaving(false);
     }
   }
 
@@ -464,6 +497,18 @@ export default function MyLeavesPage() {
                           <button onClick={() => { setCancelTarget(r); setCancelReason(""); }} className="text-xs text-error hover:underline font-medium">취소</button>
                         </div>
                       )}
+                      {r.status === "rejected" && canOverride(r) && (
+                        <div className="text-right" onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => handleReopen(r)} disabled={reopeningId === r.id} className="text-xs text-primary hover:underline font-medium disabled:opacity-50">
+                            {reopeningId === r.id ? "처리 중..." : "되돌리기"}
+                          </button>
+                        </div>
+                      )}
+                      {r.status === "approved" && canOverride(r) && (
+                        <div className="text-right" onClick={(e) => e.stopPropagation()}>
+                          <button onClick={() => { setRevokeTarget(r); setRevokeReason(""); }} className="text-xs text-error hover:underline font-medium">반려로 변경</button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -518,6 +563,12 @@ export default function MyLeavesPage() {
                         <td className="px-5 py-3.5 text-right" onClick={(e) => e.stopPropagation()}>
                           {r.status === "pending" ? (
                             <button onClick={() => { setCancelTarget(r); setCancelReason(""); }} className="text-xs text-error hover:underline font-medium">취소</button>
+                          ) : r.status === "rejected" && canOverride(r) ? (
+                            <button onClick={() => handleReopen(r)} disabled={reopeningId === r.id} className="text-xs text-primary hover:underline font-medium disabled:opacity-50">
+                              {reopeningId === r.id ? "처리 중..." : "되돌리기"}
+                            </button>
+                          ) : r.status === "approved" && canOverride(r) ? (
+                            <button onClick={() => { setRevokeTarget(r); setRevokeReason(""); }} className="text-xs text-error hover:underline font-medium">반려로 변경</button>
                           ) : (
                             <span className="text-xs text-on-surface-variant">처리완료</span>
                           )}
@@ -595,6 +646,53 @@ export default function MyLeavesPage() {
                 className="flex-1 py-2.5 bg-error text-white rounded-xl text-sm font-bold hover:opacity-90 transition disabled:opacity-50"
               >
                 {cancelSaving ? "처리 중..." : "취소 확정"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 승인 취소(반려로 변경) 확인 모달 */}
+      {revokeTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+            <div className="px-6 py-5 border-b border-outline-variant">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-error-container flex items-center justify-center flex-shrink-0">
+                  <span className="material-symbols-outlined text-error text-xl">undo</span>
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-on-surface">승인 취소 → 반려 처리</h3>
+                  <p className="text-xs text-on-surface-variant mt-0.5">{revokeTarget.userName}님의 {revokeTarget.startDate} ~ {revokeTarget.endDate} 승인건을 반려로 변경합니다. 차감됐던 연차는 복원됩니다.</p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-on-surface-variant mb-1.5">반려 사유</label>
+                <textarea
+                  value={revokeReason}
+                  onChange={(e) => setRevokeReason(e.target.value)}
+                  placeholder="반려 사유를 입력해주세요 (필수)"
+                  rows={3}
+                  className="w-full px-3 py-2.5 border border-outline-variant rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-error/30 focus:border-error transition resize-none"
+                />
+              </div>
+            </div>
+            <div className="px-6 pb-5 flex gap-3">
+              <button
+                onClick={() => { setRevokeTarget(null); setRevokeReason(""); }}
+                disabled={revokeSaving}
+                className="flex-1 py-2.5 border border-outline-variant rounded-xl text-sm font-bold text-on-surface-variant hover:bg-surface-container-low transition disabled:opacity-50"
+              >
+                돌아가기
+              </button>
+              <button
+                onClick={handleConfirmRevoke}
+                disabled={revokeSaving || !revokeReason.trim()}
+                className="flex-1 py-2.5 bg-error text-white rounded-xl text-sm font-bold hover:opacity-90 transition disabled:opacity-50"
+              >
+                {revokeSaving ? "처리 중..." : "반려 확정"}
               </button>
             </div>
           </div>

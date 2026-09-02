@@ -74,6 +74,7 @@ export default function DashboardPage() {
   const [cancelReason, setCancelReason] = useState("");
   const [quickRejectOpen, setQuickRejectOpen] = useState<string | null>(null);
   const [quickRejectNote, setQuickRejectNote] = useState<Record<string, string>>({});
+  const [quickPdfLoadingId, setQuickPdfLoadingId] = useState<string | null>(null);
 
   // 연차 조정 (관리자용)
   const [grantEmployees, setGrantEmployees] = useState<SimpleUser[]>([]);
@@ -272,6 +273,17 @@ export default function DashboardPage() {
     showNotification("휴가 신청이 반려되었습니다.");
     setQuickRejectOpen(null);
     setQuickRejectNote((p) => ({ ...p, [id]: "" }));
+  }
+  async function handleQuickPdf(r: LeaveRequest) {
+    setQuickPdfLoadingId(r.id);
+    try {
+      const { generateLeavePDF } = await import("@/lib/pdfGenerator");
+      await generateLeavePDF(r);
+    } catch {
+      showNotification("PDF 생성 중 오류가 발생했습니다.", "error");
+    } finally {
+      setQuickPdfLoadingId(null);
+    }
   }
 
   // ── Calendar shared UI ──
@@ -521,6 +533,11 @@ export default function DashboardPage() {
                             onClick={() => setQuickRejectOpen(quickRejectOpen === r.id ? null : r.id)}
                             className="px-2.5 py-1 border border-error text-error text-[11px] font-bold rounded-lg hover:bg-error/5 transition flex-shrink-0"
                           >반려</button>
+                          <button
+                            onClick={() => handleQuickPdf(r)}
+                            disabled={quickPdfLoadingId === r.id}
+                            className="px-2.5 py-1 border border-secondary text-secondary text-[11px] font-bold rounded-lg hover:bg-secondary/5 transition flex-shrink-0 disabled:opacity-50"
+                          >{quickPdfLoadingId === r.id ? "..." : "PDF"}</button>
                         </div>
                         {quickRejectOpen === r.id && (
                           <div className="px-4 pb-3 flex flex-col gap-2">

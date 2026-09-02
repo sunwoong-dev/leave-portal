@@ -23,6 +23,7 @@ const NOTIF_COL = "leave_portal_notifications";
 const NOTIF_LOGS_COL = "leave_portal_notification_logs";
 const HOLIDAYS_COL = "leave_portal_holidays";
 const CANCELLATIONS_COL = "leave_portal_cancellations";
+const STATUS_OVERRIDES_COL = "leave_portal_status_overrides";
 
 interface State {
   currentUser: User | null;
@@ -104,6 +105,8 @@ interface StoreContextType {
   updateLeaveRequest: (id: string, updates: Partial<Omit<LeaveRequest, "id" | "createdAt">>) => Promise<void>;
   addGrant: (userId: string, userName: string, days: number, reason: string) => Promise<void>;
   updateLeaveStatus: (id: string, status: "approved" | "rejected", note?: string) => Promise<void>;
+  reopenRejectedLeave: (id: string) => Promise<void>;
+  revokeApprovedLeave: (id: string, note: string) => Promise<void>;
   deleteLeave: (id: string, reason: string) => Promise<void>;
   updateSignature: (imageDataUrl: string | null) => Promise<void>;
   setResignation: (userId: string, date: string | null) => Promise<void>;
@@ -549,6 +552,64 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  // 되돌리기/반려변경 직전 상태를 별도 컬렉션에 남긴다(deleteLeave의 취소 로그와 동일한 원칙) —
+  // 두 작업 다 요청 문서를 덮어써서 "원래 누가 언제 무슨 사유로 처리했었는지"가 사라지기 때문에,
+  // 덮어쓰기 전에 스냅샷을 남겨 나중에 왜 이렇게 바뀌었는지 추적할 수 있게 한다.
+  async function logStatusOverride(req: LeaveRequest, action: "reopen" | "revoke", note?: string) {
+    await addDoc(collection(db, STATUS_OVERRIDES_COL), {
+      requestId: req.id,
+      userId: req.userId,
+      userName: req.userName,
+      action,
+      startDate: req.startDate,
+      endDate: req.endDate,
+      days: req.days,
+      previousStatus: req.status,
+      previousReviewedBy: req.reviewedBy ?? null,
+      previousReviewNote: req.reviewNote ?? null,
+      note: note ?? null,
+      overriddenBy: state.currentUser?.name ?? "관리자",
+      overriddenById: state.currentUser?.id ?? null,
+      overriddenAt: new Date().toISOString(),
+    });
+  }
+
+  // 관리자가 반려된 신청을 재검토 대기로 되돌림 — 반려 건은 애초에 차감된 적이 없어 잔액 조정
+  // 불필요, 상태와 검토 이력만 초기화한다. 이후엔 일반 승인 흐름(updateLeaveStatus)으로 재승인.
+  // 휴가 시작일이 지나지 않은 건만 UI에서 허용(이미 시작/종료된 휴가를 사후 변경하지 않기 위함).
+  async function reopenRejectedLeave(id: string) {
+    const req = state.leaveRequests.find((r) => r.id === id);
+    if (!req) return;
+    await logStatusOverride(req, "reopen");
+    await updateDoc(doc(db, REQUESTS_COL, id), {
+      status: "pending",
+      reviewedBy: deleteField(),
+      reviewedById: deleteField(),
+      reviewedAt: deleteField(),
+      reviewNote: deleteField(),
+    });
+  }
+
+  // 관리자가 이미 승인된 신청을 반려로 뒤집음 — 상태를 먼저 반려로 바꿔야 재계산이 이 신청을
+  // "승인됨"으로 다시 집계하지 않는다(deleteLeave와 동일한 순서 원칙). 그 다음 소비했던 부여를
+  // 복원하고 잔액을 재계산한다. 마찬가지로 휴가 시작일 이전 건만 UI에서 허용.
+  async function revokeApprovedLeave(id: string, note: string) {
+    const req = state.leaveRequests.find((r) => r.id === id);
+    if (!req) return;
+    await logStatusOverride(req, "revoke", note);
+    await updateDoc(doc(db, REQUESTS_COL, id), {
+      status: "rejected",
+      reviewedBy: state.currentUser?.name ?? "관리자",
+      reviewedById: state.currentUser?.id ?? null,
+      reviewedAt: new Date().toISOString(),
+      reviewNote: note,
+      grantDeductions: deleteField(),
+    });
+    if (!NO_DEDUCTION_TYPES.includes(req.type)) {
+      await reverseLeaveDeduction(req);
+    }
+  }
+
   async function updateSignature(imageDataUrl: string | null) {
     if (!state.currentUser) return;
     const userId = state.currentUser.id;
@@ -624,7 +685,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const unreadCount = state.appNotifications.filter((n) => !n.read).length;
 
   return (
-    <StoreContext.Provider value={{ state, hydrated, usedLeave, grantedDays, unreadCount, login, signup, logout, deleteAccount, addLeave, updateLeaveRequest, addGrant, updateLeaveStatus, deleteLeave, updateSignature, setResignation, reinstateEmployee, showNotification, markNotificationsRead }}>
+    <StoreContext.Provider value={{ state, hydrated, usedLeave, grantedDays, unreadCount, login, signup, logout, deleteAccount, addLeave, updateLeaveRequest, addGrant, updateLeaveStatus, reopenRejectedLeave, revokeApprovedLeave, deleteLeave, updateSignature, setResignation, reinstateEmployee, showNotification, markNotificationsRead }}>
       {children}
       {state.notification && (
         <div className={`fixed bottom-8 right-8 px-6 py-4 rounded-xl shadow-xl flex items-center gap-3 z-50 transition-all duration-300 ${
