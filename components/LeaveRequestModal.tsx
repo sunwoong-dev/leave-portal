@@ -21,7 +21,7 @@ function isHalf(t: LeaveType) {
   return t === "half-am" || t === "half-pm";
 }
 
-function calcDays(start: string, end: string, type: LeaveType, holidays: Record<string, string>): number {
+export function calcDays(start: string, end: string, type: LeaveType, holidays: Record<string, string>): number {
   if (!start || !end || end < start) return 0;
   let n = 0;
   const cur = new Date(start + "T00:00:00");

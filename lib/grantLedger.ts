@@ -36,8 +36,9 @@ export function grantRemainingTotal(grants: LeaveGrant[], userId: string, asOf: 
 
 const NO_DEDUCTION_TYPES: LeaveType[] = ["sick", "reservist"];
 
-function grantDeductionDays(req: LeaveRequest): number {
-  return (req.grantDeductions ?? []).reduce((sum, d) => sum + d.days, 0);
+function grantDeductionDays(req: LeaveRequest, userId: string): number {
+  const list = req.isBulk ? req.bulkGrantDeductions?.[userId] : req.grantDeductions;
+  return (list ?? []).reduce((sum, d) => sum + d.days, 0);
 }
 
 /**
@@ -61,7 +62,7 @@ export function simulateBaseConsumption(
   asOf: Date = new Date(),
 ): { monthlyUsed: number; annualUsedThisYear: number } {
   const sorted = requests
-    .filter((r) => r.userId === userId && r.status === "approved" && !NO_DEDUCTION_TYPES.includes(r.type))
+    .filter((r) => (r.userId === userId || r.isBulk) && r.status === "approved" && !NO_DEDUCTION_TYPES.includes(r.type))
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
 
   const monthlyCeiling = Math.min(getCompletedMonths(joinDate, asOf), 11);
@@ -69,7 +70,7 @@ export function simulateBaseConsumption(
   let monthlyUsed = 0;
   let annualUsedThisYear = 0;
   for (const r of sorted) {
-    const netDays = r.days - grantDeductionDays(r);
+    const netDays = r.days - grantDeductionDays(r, userId);
     if (netDays <= 0) continue;
     const tenureMonths = getCompletedMonths(joinDate, new Date(r.startDate));
     const stillMonthlyEligible = tenureMonths < 12;

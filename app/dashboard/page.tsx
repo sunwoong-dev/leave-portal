@@ -6,6 +6,7 @@ import AppLayout from "@/components/AppLayout";
 import { LEAVE_TYPE_LABELS, STATUS_LABELS, LeaveRequest } from "@/lib/types";
 import { isHoliday, getHolidayName } from "@/lib/holidays";
 import LeaveRequestModal from "@/components/LeaveRequestModal";
+import BulkLeaveModal from "@/components/BulkLeaveModal";
 import InfoTooltip from "@/components/InfoTooltip";
 import { db } from "@/lib/firebase";
 import { collection, getDocs } from "firebase/firestore";
@@ -65,6 +66,7 @@ export default function DashboardPage() {
 
   const [viewYear, setViewYear] = useState(todayObj.getFullYear());
   const [viewMonth, setViewMonth] = useState(todayObj.getMonth());
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalDate, setModalDate] = useState<string | undefined>();
   const [modalEndDate, setModalEndDate] = useState<string | undefined>();
@@ -473,6 +475,13 @@ export default function DashboardPage() {
             </div>
             <div className="flex items-center gap-2 self-start">
               <button
+                onClick={() => setBulkOpen(true)}
+                className="flex items-center gap-2 px-4 py-2.5 border border-outline-variant bg-white text-on-surface rounded-xl font-bold text-sm hover:bg-surface-container-low transition-all active:scale-95"
+              >
+                <span className="material-symbols-outlined text-xl">groups</span>
+                일괄 신청
+              </button>
+              <button
                 onClick={() => window.open("/widget", "leave-widget", "width=400,height=650,left=20,top=20,resizable=yes,scrollbars=no")}
                 className="flex items-center gap-2 px-4 py-2.5 border border-outline-variant bg-white text-on-surface rounded-xl font-bold text-sm hover:bg-surface-container-low transition-all active:scale-95"
               >
@@ -646,6 +655,7 @@ export default function DashboardPage() {
         )}
         {calendarModal}
         {dayPopoverEl}
+        {bulkOpen && <BulkLeaveModal onClose={() => setBulkOpen(false)} />}
       </AppLayout>
     );
   }

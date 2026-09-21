@@ -42,6 +42,8 @@ export interface LeaveRequest {
   reason: string;
   status: LeaveStatus;
   createdAt: string;
+  isBulk?: boolean; // 관리자 전직원 일괄 신청(문서 1개, userId="ALL") — 모든 직원 잔액 계산에 포함, PDF에 "전직원" 표기
+  bulkGrantDeductions?: Record<string, { grantId: string; days: number }[]>; // 일괄 신청 시 직원별 부여 연차 차감 내역
   // 업무 인수인계
   projectName?: string;
   progress?: number;
