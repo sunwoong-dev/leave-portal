@@ -102,7 +102,7 @@ interface StoreContextType {
   logout: () => Promise<void>;
   deleteAccount: (password: string) => Promise<{ ok: boolean; error?: string }>;
   addLeave: (req: Omit<LeaveRequest, "id" | "createdAt">) => Promise<void>;
-  addBulkLeave: (type: LeaveType, startDate: string, endDate: string, days: number) => Promise<void>;
+  addBulkLeave: (targets: { id: string; name: string }[], type: LeaveType, startDate: string, endDate: string, days: number) => Promise<void>;
   updateLeaveRequest: (id: string, updates: Partial<Omit<LeaveRequest, "id" | "createdAt">>) => Promise<void>;
   addGrant: (userId: string, userName: string, days: number, reason: string) => Promise<void>;
   updateLeaveStatus: (id: string, status: "approved" | "rejected", note?: string) => Promise<void>;
@@ -159,13 +159,12 @@ async function recomputeLeaveBalance(userId: string, joinDate: string): Promise<
     const snap = await getDoc(doc(db, USERS_COL, userId));
     return (snap.data()?.leaveBalance as number | undefined) ?? 15;
   }
-  const [grantsSnap, requestsSnap, bulkSnap] = await Promise.all([
+  const [grantsSnap, requestsSnap] = await Promise.all([
     getDocs(query(collection(db, GRANTS_COL), where("userId", "==", userId))),
     getDocs(query(collection(db, REQUESTS_COL), where("userId", "==", userId))),
-    getDocs(query(collection(db, REQUESTS_COL), where("isBulk", "==", true))), // 전직원 일괄 휴가
   ]);
   const grants = grantsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as LeaveGrant[];
-  const requests = [...requestsSnap.docs, ...bulkSnap.docs].map((d) => ({ id: d.id, ...d.data() })) as LeaveRequest[];
+  const requests = requestsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as LeaveRequest[];
   const totalLeave = calcTotalLeave(joinDate);
   const balance = calcRemainingLeave(requests, grants, userId, joinDate);
   await updateDoc(doc(db, USERS_COL, userId), { totalLeave, leaveBalance: balance });
@@ -415,9 +414,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // 소멸일(부여일+1년, 입사일 이후 시점이라 항상 더 늦음)보다 항상 먼저라 월차부터 태우는 게
   // 손해가 없다 — 이 신청 시점에 아직 감당 가능한 월차가 있으면 그만큼은 부여를 건드리지 않고,
   // 월차로 못 채우는 나머지만 부여 소비 계획을 세운다. 최종 잔액 반영은 재계산에 맡긴다.
-  async function applyLeaveDeduction(requestId: string, userId: string, days: number, startDate: string, bulk = false) {
+  async function applyLeaveDeduction(requestId: string, userId: string, days: number, startDate: string) {
     const joinDate = await fetchJoinDate(userId);
-    const priorRequests = state.leaveRequests.filter((r) => (r.userId === userId || r.isBulk) && r.startDate < startDate);
+    const priorRequests = state.leaveRequests.filter((r) => r.userId === userId && r.startDate < startDate);
     const { monthlyUsed } = simulateBaseConsumption(priorRequests, userId, joinDate, "");
     const tenureMonthsAtReq = getCompletedMonths(joinDate, new Date(startDate));
     const monthlyCeiling = Math.min(getCompletedMonths(joinDate), 11); // 오늘 기준 쌓인 만큼(선사용 허용)
@@ -429,7 +428,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       plan.map((p) => updateDoc(doc(db, GRANTS_COL, p.grantId), { remainingDays: increment(-p.days) }))
     );
     if (plan.length > 0) {
-      await updateDoc(doc(db, REQUESTS_COL, requestId), bulk ? { [`bulkGrantDeductions.${userId}`]: plan } : { grantDeductions: plan });
+      await updateDoc(doc(db, REQUESTS_COL, requestId), { grantDeductions: plan });
     }
     await recomputeLeaveBalance(userId, joinDate);
   }
@@ -437,12 +436,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // 승인 취소/삭제 시 차감을 정확히 되돌림. 요청 문서가 이미 삭제/반려된 뒤에 호출해야
   // 재계산이 해당 신청을 다시 세지 않는다(deleteLeave가 순서를 보장).
   async function reverseLeaveDeduction(req: LeaveRequest) {
-    if (req.isBulk) {
-      const all = Object.values(req.bulkGrantDeductions ?? {}).flat();
-      await Promise.all(all.map((gd) => updateDoc(doc(db, GRANTS_COL, gd.grantId), { remainingDays: increment(gd.days) })));
-      for (const uid of await activeUserIds()) await recomputeLeaveBalance(uid, await fetchJoinDate(uid));
-      return;
-    }
     if (req.grantDeductions && req.grantDeductions.length > 0) {
       await Promise.all(
         req.grantDeductions.map((gd) => updateDoc(doc(db, GRANTS_COL, gd.grantId), { remainingDays: increment(gd.days) }))
@@ -484,30 +477,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  async function activeUserIds(): Promise<string[]> {
-    const snap = await getDocs(collection(db, USERS_COL));
-    return snap.docs.filter((d) => !d.data().resignationDate).map((d) => d.id);
-  }
-
-  async function applyBulkDeduction(requestId: string, days: number, startDate: string) {
-    for (const uid of await activeUserIds()) await applyLeaveDeduction(requestId, uid, days, startDate, true);
-  }
-
-  // 관리자 전직원 일괄 휴가: 승인 상태의 신청서 1건(userId="ALL")만 저장하고, 재직 중인 모든 직원(관리자 포함)의
-  // 잔액에는 isBulk 규칙(grantLedger)으로 반영한다. 즉시 차감, 알림 없음.
-  async function addBulkLeave(type: LeaveType, startDate: string, endDate: string, days: number) {
+  // 관리자 일괄 휴가: 선택한 직원 각각에게 승인 상태의 개별 신청서를 생성하고 즉시 차감(알림 없음).
+  async function addBulkLeave(targets: { id: string; name: string }[], type: LeaveType, startDate: string, endDate: string, days: number) {
     const admin = state.currentUser;
     if (!admin?.isManager) return;
     const now = new Date().toISOString();
-    const data: Omit<LeaveRequest, "id"> = {
-      userId: "ALL", userName: "전직원", department: "", role: "", initials: "전",
-      type, startDate, endDate, days, reason: "전직원 일괄 휴가",
-      status: "approved", createdAt: now, isBulk: true,
-      reviewedBy: `${admin.name} (일괄신청)`, reviewedById: admin.id, reviewedAt: now,
-    };
-    const ref = await addDoc(collection(db, REQUESTS_COL), data);
-    if (NO_DEDUCTION_TYPES.includes(type)) return;
-    await applyBulkDeduction(ref.id, days, startDate);
+    for (const t of targets) {
+      const ref = await addDoc(collection(db, REQUESTS_COL), {
+        userId: t.id, userName: t.name, department: "", role: "", initials: makeInitials(t.name),
+        type, startDate, endDate, days, reason: "관리자 일괄 휴가",
+        status: "approved", createdAt: now,
+        reviewedBy: `${admin.name} (일괄신청)`, reviewedById: admin.id, reviewedAt: now,
+      });
+      if (!NO_DEDUCTION_TYPES.includes(type)) await applyLeaveDeduction(ref.id, t.id, days, startDate);
+      else await recomputeLeaveBalance(t.id, await fetchJoinDate(t.id));
+    }
   }
 
   async function updateLeaveRequest(id: string, updates: Partial<Omit<LeaveRequest, "id" | "createdAt">>) {
@@ -542,11 +526,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (req) {
       // 승인 시 잔여 연차 차감 (병가/예비군은 유급 처리되어 차감 제외)
       if (status === "approved" && !NO_DEDUCTION_TYPES.includes(req.type)) {
-        if (req.isBulk) await applyBulkDeduction(id, req.days, req.startDate);
-        else await applyLeaveDeduction(id, req.userId, req.days, req.startDate);
+        await applyLeaveDeduction(id, req.userId, req.days, req.startDate);
       }
-      // 신청자에게 결과 알림 (관리자 본인 신청·전직원 일괄 신청 제외)
-      if (req.userId !== state.currentUser?.id && !req.isBulk) {
+      // 신청자에게 결과 알림 (관리자 본인 신청 제외)
+      if (req.userId !== state.currentUser?.id) {
         const isApproved = status === "approved";
         sendPushToUser(
           req.userId,
@@ -639,7 +622,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       reviewedAt: new Date().toISOString(),
       reviewNote: note,
       grantDeductions: deleteField(),
-      bulkGrantDeductions: deleteField(),
     });
     if (!NO_DEDUCTION_TYPES.includes(req.type)) {
       await reverseLeaveDeduction(req);

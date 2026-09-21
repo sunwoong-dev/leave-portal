@@ -9,7 +9,7 @@ interface ApplicantInfo {
 }
 
 async function getApplicantInfo(req: LeaveRequest): Promise<ApplicantInfo> {
-  if (!req.userId || req.isBulk) return {}; // 전직원 일괄 신청은 개인 서명/입사일 없음
+  if (!req.userId) return {};
   const snap = await getDoc(doc(db, "leave_portal_users", req.userId));
   if (!snap.exists()) return {};
   const data = snap.data();
@@ -49,7 +49,6 @@ function chk(checked: boolean): string {
 }
 
 function buildFormHTML(req: LeaveRequest, applicantJoinDate?: string, applicantSignature?: string, reviewerSignature?: string): string {
-  const applicantName = req.isBulk ? "전직원" : req.userName;
   // 연차/월차는 신청 당시(startDate) 기준 근속 개월수로 판정 — 신청서 자체엔 "annual" 하나로만 저장되기 때문
   const isAnnualCategory = req.type === "annual" || req.type === "monthly";
   const leaveTypeAtRequest = applicantJoinDate ? getLeaveTypeLabel(applicantJoinDate, new Date(req.startDate)) : "연차";
@@ -138,7 +137,7 @@ function buildFormHTML(req: LeaveRequest, applicantJoinDate?: string, applicantS
 
           <tr>
             <th style="${LBL}">신 &nbsp; 청 &nbsp; 인</th>
-            <td style="${VAL}">${applicantName}</td>
+            <td style="${VAL}">${req.userName}</td>
           </tr>
 
           <tr>
@@ -219,7 +218,7 @@ function buildFormHTML(req: LeaveRequest, applicantJoinDate?: string, applicantS
       <!-- 서명 -->
       <div style="text-align:right; margin-top:52px; font-size:13px; line-height:2.6;">
         <p style="margin:0;">신청일: ${fmtISODate(req.createdAt)}</p>
-        <p style="margin:0;">신청인: ${applicantName}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="position:relative; display:inline-block; width:48px; height:48px; vertical-align:middle;">
+        <p style="margin:0;">신청인: ${req.userName}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="position:relative; display:inline-block; width:48px; height:48px; vertical-align:middle;">
           <span style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center;">(인)</span>
           ${applicantSignature ? `<img src="${applicantSignature}" style="position:absolute; inset:0; width:100%; height:100%; object-fit:contain; pointer-events:none;" />` : ""}
         </span></p>
@@ -265,7 +264,7 @@ export async function generateLeavePDF(req: LeaveRequest): Promise<void> {
       pdf.addImage(canvas.toDataURL("image/png"), "PNG", (pw - imgW) / 2, 0, imgW, ph);
     }
 
-    pdf.save(`휴가신청서_${req.isBulk ? "전직원" : req.userName}_${req.startDate}.pdf`);
+    pdf.save(`휴가신청서_${req.userName}_${req.startDate}.pdf`);
   } finally {
     document.body.removeChild(wrapper);
   }

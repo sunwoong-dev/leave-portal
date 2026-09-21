@@ -36,7 +36,6 @@ export default function MyLeavesPage() {
   const endDateInitialized = useRef(false);
   const [page, setPage] = useState(1);
   const [allUsersTotalLeave, setAllUsersTotalLeave] = useState(0);
-  const [activeUserCount, setActiveUserCount] = useState(1);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [pdfLoading, setPdfLoading] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<LeaveRequest | null>(null);
@@ -72,9 +71,8 @@ export default function MyLeavesPage() {
 
   useEffect(() => {
     getDocs(collection(db, "leave_portal_users")).then((snap) => {
-      const active = snap.docs.filter((d) => !d.data().resignationDate);
-      setActiveUserCount(Math.max(1, active.length));
-      const total = active
+      const total = snap.docs
+        .filter((d) => !d.data().resignationDate)
         .reduce((sum, d) => sum + calcTotalLeave((d.data().joinDate as string) ?? ""), 0);
       setAllUsersTotalLeave(total);
     });
@@ -107,8 +105,8 @@ export default function MyLeavesPage() {
   const allApprovedDays = useMemo(() => {
     return state.leaveRequests
       .filter((r) => r.status === "approved" && r.startDate.startsWith(selectedYear))
-      .reduce((sum, r) => sum + r.days * (r.isBulk ? activeUserCount : 1), 0);
-  }, [state.leaveRequests, selectedYear, activeUserCount]);
+      .reduce((sum, r) => sum + r.days, 0);
+  }, [state.leaveRequests, selectedYear]);
 
   const utilizationRate = allUsersTotalLeave > 0
     ? Math.min(100, Math.round((allApprovedDays / allUsersTotalLeave) * 100))

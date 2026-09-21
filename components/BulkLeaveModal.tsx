@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { db } from "@/lib/firebase";
+import { collection, getDocs } from "firebase/firestore";
 import { useStore } from "@/lib/store";
 import { LeaveType, LEAVE_TYPE_LABELS } from "@/lib/types";
 import { todayLocalStr } from "@/lib/dateUtils";
@@ -8,23 +10,46 @@ import { calcDays } from "@/components/LeaveRequestModal";
 
 const BULK_TYPES: LeaveType[] = ["annual", "half-am", "half-pm", "reservist", "sick", "other"];
 
+interface Emp { id: string; name: string; }
+
 export default function BulkLeaveModal({ onClose }: { onClose: () => void }) {
   const { state, addBulkLeave, showNotification } = useStore();
   const [type, setType] = useState<LeaveType>("annual");
   const [startDate, setStartDate] = useState(todayLocalStr());
   const [endDate, setEndDate] = useState(todayLocalStr());
   const [submitting, setSubmitting] = useState(false);
+  const [emps, setEmps] = useState<Emp[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    getDocs(collection(db, "leave_portal_users")).then((snap) => {
+      const list = snap.docs
+        .filter((d) => !d.data().resignationDate)
+        .map((d) => ({ id: d.id, name: d.data().name as string }))
+        .sort((a, b) => a.name.localeCompare(b.name, "ko"));
+      setEmps(list);
+    });
+  }, []);
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+  const allSelected = emps.length > 0 && selected.size === emps.length;
 
   const days = calcDays(startDate, endDate, type, state.holidays);
-  const invalid = !startDate || !endDate || endDate < startDate || days === 0;
+  const invalid = !startDate || !endDate || endDate < startDate || days === 0 || selected.size === 0;
 
   async function handleSubmit() {
     if (invalid || submitting) return;
-    if (!window.confirm(`전직원에게 ${LEAVE_TYPE_LABELS[type]} ${days}일(${startDate} ~ ${endDate})을 일괄 사용 처리합니다.\n승인 즉시 각 직원의 연차가 차감됩니다. 진행할까요?`)) return;
+    if (!window.confirm(`선택한 ${selected.size}명에게 ${LEAVE_TYPE_LABELS[type]} ${days}일(${startDate} ~ ${endDate})을 일괄 사용 처리합니다.\n승인 즉시 각 직원의 연차가 차감됩니다. 진행할까요?`)) return;
     setSubmitting(true);
     try {
-      await addBulkLeave(type, startDate, endDate, days);
-      showNotification("전직원 휴가가 일괄 처리되었습니다.");
+      await addBulkLeave(emps.filter((e) => selected.has(e.id)), type, startDate, endDate, days);
+      showNotification(`${selected.size}명의 휴가가 일괄 처리되었습니다.`);
       onClose();
     } catch {
       showNotification("일괄 처리 중 오류가 발생했습니다. 일부 직원만 차감되었을 수 있으니 Leave History를 확인해주세요.", "error");
@@ -39,7 +64,7 @@ export default function BulkLeaveModal({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-outline-variant bg-surface-bright flex items-center justify-between">
-          <h3 className="font-bold text-base text-on-surface">전직원 일괄 신청</h3>
+          <h3 className="font-bold text-base text-on-surface">일괄 신청</h3>
           <button onClick={onClose} className="p-1 hover:bg-surface-container-high rounded-full transition">
             <span className="material-symbols-outlined text-xl text-on-surface-variant">close</span>
           </button>
@@ -58,6 +83,23 @@ export default function BulkLeaveModal({ onClose }: { onClose: () => void }) {
             <input type="date" value={endDate} min={startDate} onChange={(e) => setEndDate(e.target.value)} className={inputCls} />
             <p className="text-right text-sm text-on-surface-variant mt-2">총 일수: <span className="font-bold text-primary">{days}일</span></p>
             {days === 0 && startDate && <p className="text-xs text-error mt-1">주말·공휴일만 선택되어 사용 일수가 0일입니다.</p>}
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-bold text-on-surface-variant">대상 직원 <span className="text-primary">{selected.size}명</span></label>
+              <button type="button" onClick={() => setSelected(allSelected ? new Set() : new Set(emps.map((e) => e.id)))} className="text-xs text-primary font-semibold hover:underline">
+                {allSelected ? "전체 해제" : "전체 선택"}
+              </button>
+            </div>
+            <div className="max-h-48 overflow-y-auto border border-outline-variant rounded-xl divide-y divide-outline-variant">
+              {emps.map((e) => (
+                <label key={e.id} className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-surface-container-low">
+                  <input type="checkbox" checked={selected.has(e.id)} onChange={() => toggle(e.id)} className="w-4 h-4 accent-primary" />
+                  <span className="text-sm text-on-surface">{e.name}</span>
+                </label>
+              ))}
+              {emps.length === 0 && <p className="px-3 py-4 text-xs text-on-surface-variant text-center">직원 목록을 불러오는 중...</p>}
+            </div>
           </div>
         </div>
         <div className="px-6 pb-5 flex gap-2">
