@@ -350,26 +350,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     password: string,
     data: SignupData
   ): Promise<{ ok: boolean; error?: string }> {
-    const [usernameSnap, nameSnap] = await Promise.all([
-      getDocs(query(collection(db, USERS_COL), where("username", "==", username))),
-      getDocs(query(collection(db, USERS_COL), where("name", "==", data.name))),
-    ]);
-    if (!usernameSnap.empty) return { ok: false, error: "이미 사용 중인 아이디입니다." };
-    if (!nameSnap.empty) return { ok: false, error: "이미 사용 중인 이름입니다." };
-
-    const hashed = await hashPassword(password);
-    const initialBalance = data.joinDate ? calcTotalLeave(data.joinDate) : 15;
-    const newDoc = {
-      username,
-      name: data.name,
-      joinDate: data.joinDate,
-      password: hashed,
-      isManager: false,
-      initials: makeInitials(data.name),
-      totalLeave: initialBalance,
-      leaveBalance: initialBalance,
-    };
-    await addDoc(collection(db, USERS_COL), newDoc);
+    // 아이디/이름 중복체크 + 계정 생성은 서버(API Route, firebase-admin)에서 수행 — 로그인과
+    // 동일한 이유(비인증 상태에서 Firestore를 직접 읽고 쓰지 않아야 보안 규칙을 강하게 걸 수 있음)
+    const res = await fetch("/api/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password, name: data.name, joinDate: data.joinDate }),
+    });
+    const result = (await res.json()) as { ok: boolean; code?: string };
+    if (!result.ok) {
+      const error =
+        result.code === "username_taken" ? "이미 사용 중인 아이디입니다."
+        : result.code === "name_taken" ? "이미 사용 중인 이름입니다."
+        : "회원가입 중 오류가 발생했습니다.";
+      return { ok: false, error };
+    }
 
     // 가입 직후 자동 로그인 — 방금 저장한 자격 증명으로 동일한 서버 검증 경로를 그대로 태움
     try {
