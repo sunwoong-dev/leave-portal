@@ -146,7 +146,8 @@ export default function Header({
                           </span>
                           <div className="flex-1 min-w-0">
                             <p className={`text-sm font-semibold text-on-surface ${!n.read ? "text-primary" : ""}`}>{n.title}</p>
-                            <p className="text-xs text-on-surface-variant mt-0.5 leading-relaxed">{n.body}</p>
+                            {/* 승인/반려 알림은 날짜 길이와 무관하게 "휴가가" 뒤에서 줄바꿈 (기존 저장된 알림에도 적용되도록 렌더링 시 처리) */}
+                            <p className="text-xs text-on-surface-variant mt-0.5 leading-relaxed whitespace-pre-line">{n.body.replace(" 휴가가 ", " 휴가가\n")}</p>
                             <p className="text-xs text-on-surface-variant opacity-60 mt-1">{fmtTime(n.createdAt)}</p>
                           </div>
                           {!n.read && (
