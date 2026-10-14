@@ -696,7 +696,7 @@ export default function DashboardPage() {
               <span className="material-symbols-outlined text-secondary text-lg">pending_actions</span>
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-[11px] text-on-surface-variant font-semibold leading-tight flex items-center">사용 휴가<InfoTooltip text={explainUsedLeave(usedLeave)} /></p>
+              <p className="text-[11px] text-on-surface-variant font-semibold leading-tight flex items-center">사용 연차<InfoTooltip text={explainUsedLeave(usedLeave)} /></p>
               <p className="text-2xl font-bold text-secondary leading-tight">{usedLeave}<span className="text-xs font-medium text-on-surface-variant ml-0.5">일</span></p>
               <div className="mt-1 h-1 bg-surface-container rounded-full overflow-hidden">
                 <div className="h-full bg-secondary rounded-full transition-all" style={{ width: `${usedPct}%` }} />
@@ -708,7 +708,7 @@ export default function DashboardPage() {
               <span className="material-symbols-outlined text-on-tertiary-fixed-variant text-lg">schedule</span>
             </div>
             <div className="min-w-0">
-              <p className="text-[11px] text-on-surface-variant font-semibold leading-tight flex items-center">남은 휴가<InfoTooltip text={explainRemaining()} /></p>
+              <p className="text-[11px] text-on-surface-variant font-semibold leading-tight flex items-center">잔여 연차<InfoTooltip text={explainRemaining()} /></p>
               <p className={`text-2xl font-bold leading-tight ${remaining <= 3 ? "text-error" : "text-on-tertiary-fixed-variant"}`}>{remaining}<span className="text-xs font-medium text-on-surface-variant ml-0.5">일</span></p>
               {(() => {
                 const d = daysUntilLeaveRenewal(user.joinDate ?? "");
