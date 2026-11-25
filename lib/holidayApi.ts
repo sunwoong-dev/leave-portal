@@ -7,6 +7,9 @@ const API_URL = "https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoServic
 // "출근일"로 다뤄왔음 — 하드코딩 목록에도 없었으므로 API 연동 후에도 동일하게 취급하기 위해 제외.
 const EXCLUDE_NAMES = new Set(["노동절"]);
 
+// API가 주는 공식 명칭 중 화면에 어색한 것은 통용 이름으로 바꿔 저장한다.
+const RENAME_MAP: Record<string, string> = { "기독탄신일": "성탄절" };
+
 interface HolidayApiItem {
   locdate: number;
   dateName: string;
@@ -50,7 +53,7 @@ export async function fetchHolidaysForYear(year: number): Promise<Record<string,
   for (const item of items) {
     if (item.isHoliday !== "Y") continue;
     if (EXCLUDE_NAMES.has(item.dateName)) continue;
-    holidays[toDateStr(item.locdate)] = item.dateName;
+    holidays[toDateStr(item.locdate)] = RENAME_MAP[item.dateName] ?? item.dateName;
   }
   return holidays;
 }
