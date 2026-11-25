@@ -271,6 +271,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const yearHolidays = d.data().holidays as Record<string, string> | undefined;
         if (yearHolidays) Object.assign(merged, yearHolidays);
       });
+      // 이미 저장된 옛 이름(API 공식 명칭)도 화면에서는 통용 이름으로 보이게 한다.
+      for (const date of Object.keys(merged)) {
+        if (merged[date] === "기독탄신일") merged[date] = "성탄절";
+      }
       dispatch({ type: "SET_HOLIDAYS", payload: merged });
     });
     return () => unsubscribe();
